@@ -1,0 +1,785 @@
+{
+    "1 Dashboard & Reports": {
+        "title": "Dashboard",
+        "icon": "las la-home",
+        "route_name": "admin.dashboard",
+        "menu_active": "admin.dashboard"
+    },
+    "telemetry": {
+        "title": "Telemetry & KPIs",
+        "icon": "las la-chart-pie",
+        "route_name": "admin.telemetry",
+        "menu_active": "admin.telemetry"
+    },
+    "analytics": {
+        "title": "Platform Analytics",
+        "icon": "las la-chart-bar",
+        "menu_active": [
+            "admin.analytics.monetization",
+            "admin.analytics.creators",
+            "admin.analytics.retention",
+            "admin.analytics.google"
+        ],
+        "exclude_expansion": [
+            "admin.analytics.dashboard",
+            "admin.analytics.technical"
+        ],
+        "submenu": [
+            {
+                "title": "Core Dashboard",
+                "route_name": "admin.analytics.dashboard",
+                "menu_active": "admin.analytics.dashboard"
+            },
+            {
+                "title": "Monetization & Growth",
+                "route_name": "admin.analytics.monetization",
+                "menu_active": "admin.analytics.monetization"
+            },
+            {
+                "title": "Creator Excellence",
+                "route_name": "admin.analytics.creators",
+                "menu_active": "admin.analytics.creators"
+            },
+            {
+                "title": "User Retention",
+                "route_name": "admin.analytics.retention",
+                "menu_active": "admin.analytics.retention"
+            },
+            {
+                "title": "Technical Quality",
+                "route_name": "admin.analytics.technical",
+                "menu_active": "admin.analytics.technical"
+            },
+            {
+                "title": "Google Analytics",
+                "route_name": "admin.analytics.google",
+                "menu_active": "admin.analytics.google"
+            }
+        ]
+    },
+    "real_time_intelligence": {
+        "title": "Real-Time Intelligence",
+        "icon": "sensors",
+        "menu_active": "admin.report.watch.history",
+        "submenu": [
+            {
+                "title": "Live Diagnostics",
+                "route_name": "admin.analytics.dashboard",
+                "menu_active": "admin.analytics.dashboard"
+            },
+            {
+                "title": "Activity Feed",
+                "route_name": "admin.report.watch.history",
+                "menu_active": "admin.report.watch.history"
+            },
+            {
+                "title": "System Health",
+                "route_name": "admin.analytics.technical",
+                "menu_active": "admin.analytics.technical"
+            }
+        ]
+    },
+    "growth": {
+        "title": "Growth & Acquisition",
+        "icon": "las la-chart-line",
+        "route_name": "admin.growth.index",
+        "menu_active": "admin.growth.index"
+    },
+    "content_intelligence": {
+        "title": "Content Intelligence",
+        "icon": "las la-brain",
+        "menu_active": [
+            "admin.analytics.content*",
+            "admin.users.policy.violators*"
+        ],
+        "submenu": [
+            {
+                "title": "Rewatch Analytics",
+                "route_name": "admin.analytics.content",
+                "menu_active": "admin.analytics.content"
+            },
+            {
+                "title": "Policy Violators",
+                "route_name": "admin.users.policy.violators",
+                "menu_active": "admin.users.policy.violators"
+            }
+        ]
+    },
+    "2 Users & Marketplace": {
+        "title": "User Management",
+        "icon": "las la-users",
+        "counters": [
+            "bannedUsersCount",
+            "emailUnverifiedUsersCount",
+            "mobileUnverifiedUsersCount",
+            "kycUnverifiedUsersCount",
+            "kycPendingUsersCount",
+            "monetizationRequestCount",
+            "pendingDeletionCount"
+        ],
+        "menu_active": [
+            "admin.users.regular",
+            "admin.users.creators",
+            "admin.users.all",
+            "admin.users.banned",
+            "admin.users.monetization.request",
+            "admin.users.detail",
+            "admin.users.deletion.requests",
+            "admin.users.deletion.logs"
+        ],
+        "submenu": [
+            {
+                "title": "Regular Users",
+                "route_name": "admin.users.regular",
+                "menu_active": "admin.users.regular"
+            },
+            {
+                "title": "Creators",
+                "route_name": "admin.users.creators",
+                "menu_active": "admin.users.creators"
+            },
+            {
+                "title": "All Users",
+                "route_name": "admin.users.all",
+                "menu_active": [
+                    "admin.users.all",
+                    "admin.users.detail"
+                ]
+            },
+            {
+                "title": "Blocked Users",
+                "route_name": "admin.users.banned",
+                "menu_active": "admin.users.banned",
+                "counter": "bannedUsersCount"
+            },
+            {
+                "title": "Monetization Requests",
+                "route_name": "admin.users.monetization.request",
+                "menu_active": "admin.users.monetization.request",
+                "counter": "monetizationRequestCount"
+            },
+            {
+                "title": "Deletion Requests",
+                "route_name": "admin.users.deletion.requests",
+                "menu_active": "admin.users.deletion.requests",
+                "counter": "pendingDeletionCount"
+            },
+            {
+                "title": "Deletion Logs",
+                "route_name": "admin.users.deletion.logs",
+                "menu_active": "admin.users.deletion.logs"
+            }
+        ]
+    },
+    "3 KYC Management": {
+        "title": "KYC Management",
+        "icon": "las la-id-card",
+        "menu_active": "admin.users.kyc.*",
+        "submenu": [
+            {
+                "title": "All KYCs",
+                "route_name": "admin.users.kyc.all",
+                "menu_active": [
+                    "admin.users.kyc.all",
+                    "admin.users.kyc.details"
+                ]
+            },
+            {
+                "title": "Pending KYCs",
+                "route_name": "admin.users.kyc.pending.list",
+                "menu_active": "admin.users.kyc.pending.list"
+            },
+            {
+                "title": "Approved KYCs",
+                "route_name": "admin.users.kyc.approved.list",
+                "menu_active": "admin.users.kyc.approved.list"
+            },
+            {
+                "title": "Rejected KYCs",
+                "route_name": "admin.users.kyc.rejected.list",
+                "menu_active": "admin.users.kyc.rejected.list"
+            }
+        ]
+    },
+    "marketplace": {
+        "title": "Marketplace",
+        "icon": "las la-store",
+        "menu_active": "admin.marketplace.*",
+        "submenu": [
+            {
+                "title": "Actor Profiles",
+                "route_name": "admin.marketplace.actors",
+                "menu_active": "admin.marketplace.actors"
+            },
+            {
+                "title": "Influencer Profiles",
+                "route_name": "admin.marketplace.influencers",
+                "menu_active": "admin.marketplace.influencers"
+            },
+            {
+                "title": "Investor Profiles",
+                "route_name": "admin.marketplace.investors",
+                "menu_active": "admin.marketplace.investors"
+            },
+            {
+                "title": "All Profiles",
+                "route_name": "admin.marketplace.index",
+                "menu_active": [
+                    "admin.marketplace.index",
+                    "admin.marketplace.show",
+                    "admin.marketplace.edit",
+                    "admin.marketplace.create"
+                ]
+            },
+            {
+                "title": "Gallery Photos",
+                "route_name": "admin.marketplace.gallery.index",
+                "menu_active": "admin.marketplace.gallery.*"
+            },
+            {
+                "title": "Services",
+                "route_name": "admin.marketplace.services.index",
+                "menu_active": "admin.marketplace.services.*"
+            },
+            {
+                "title": "Portfolios",
+                "route_name": "admin.marketplace.portfolio.index",
+                "menu_active": "admin.marketplace.portfolio.*"
+            },
+            {
+                "title": "Market Plans",
+                "route_name": "admin.userplans.index",
+                "menu_active": "admin.userplans.*"
+            },
+            {
+                "title": "Transactions",
+                "route_name": "admin.marketplace.transactions",
+                "menu_active": "admin.marketplace.transactions"
+            },
+            {
+                "title": "Contact Inquiries",
+                "route_name": "admin.marketplace.contacts.index",
+                "menu_active": "admin.marketplace.contacts.*"
+            }
+        ]
+    },
+    "monetization": {
+        "title": "Monetization",
+        "icon": "las la-dollar-sign",
+        "menu_active": "admin.monetization.*",
+        "route_name": "admin.monetization.index"
+    },
+    "banner_ads": {
+        "title": "Banner Ads",
+        "icon": "las la-ad",
+        "menu_active": "admin.banners.*",
+        "submenu": [
+            {
+                "title": "Slot 1",
+                "route_name": "admin.banners.index",
+                "params": {
+                    "slot": "slot1",
+                    "key": "slot1"
+                },
+                "menu_active": "admin.banners.index"
+            },
+            {
+                "title": "Slot 2",
+                "route_name": "admin.banners.index",
+                "params": {
+                    "slot": "slot2",
+                    "key": "slot2"
+                },
+                "menu_active": "admin.banners.index"
+            },
+            {
+                "title": "Slot 3",
+                "route_name": "admin.banners.index",
+                "params": {
+                    "slot": "slot3",
+                    "key": "slot3"
+                },
+                "menu_active": "admin.banners.index"
+            },
+            {
+                "title": "Slot 4",
+                "route_name": "admin.banners.index",
+                "params": {
+                    "slot": "slot4",
+                    "key": "slot4"
+                },
+                "menu_active": "admin.banners.index"
+            }
+        ]
+    },
+    "4 Content Management": {
+        "title": "Videos",
+        "icon": "las la-video",
+        "menu_active": "admin.videos*",
+        "exclude_expansion": [
+            "admin.videos.featured",
+            "admin.videos.trending"
+        ],
+        "submenu": [
+            {
+                "title": "Video Commissions",
+                "route_name": "admin.video.commissions",
+                "menu_active": "admin.video.commissions"
+            },
+            {
+                "title": "All Videos",
+                "route_name": "admin.videos.index_legacy",
+                "menu_active": [
+                    "admin.videos.index_legacy",
+                    "admin.videos.show",
+                    "admin.videos.edit",
+                    "admin.videos.create"
+                ]
+            },
+            {
+                "title": "Regular Videos",
+                "route_name": "admin.videos.regular",
+                "menu_active": "admin.videos.regular"
+            },
+            {
+                "title": "Published Videos",
+                "route_name": "admin.videos.published",
+                "menu_active": "admin.videos.published"
+            },
+            {
+                "title": "Draft Videos",
+                "route_name": "admin.videos.draft",
+                "menu_active": "admin.videos.draft"
+            },
+            {
+                "title": "Featured Videos",
+                "route_name": "admin.videos.featured",
+                "menu_active": "admin.videos.featured"
+            },
+            {
+                "title": "Premium Videos",
+                "route_name": "admin.videos.premium",
+                "menu_active": "admin.videos.premium"
+            },
+            {
+                "title": "Liked Videos",
+                "route_name": "admin.videos.liked",
+                "menu_active": "admin.videos.liked"
+            },
+            {
+                "title": "Trending Videos",
+                "route_name": "admin.videos.trending",
+                "menu_active": "admin.videos.trending"
+            },
+            {
+                "title": "Public Videos",
+                "route_name": "admin.videos.public",
+                "menu_active": "admin.videos.public"
+            },
+            {
+                "title": "Private Videos",
+                "route_name": "admin.videos.private",
+                "menu_active": "admin.videos.private"
+            },
+            {
+                "title": "Not Interested",
+                "route_name": "admin.videos.not-interested.index",
+                "menu_active": "admin.videos.not-interested.*"
+            }
+        ]
+    },
+    "featured_management": {
+        "title": "Featured Management",
+        "icon": "las la-star",
+        "menu_active": "admin.channels.featured",
+        "submenu": [
+            {
+                "title": "Featured Videos",
+                "route_name": "admin.videos.featured",
+                "menu_active": "admin.videos.featured"
+            },
+            {
+                "title": "Trending Content",
+                "route_name": "admin.videos.trending",
+                "menu_active": "admin.videos.trending"
+            },
+            {
+                "title": "Featured Channels",
+                "route_name": "admin.channels.featured",
+                "menu_active": "admin.channels.featured"
+            },
+            {
+                "title": "Promoted Marketplace",
+                "route_name": "admin.marketplace.index"
+            }
+        ]
+    },
+    "channels": {
+        "title": "Channels",
+        "icon": "las la-tv",
+        "menu_active": "admin.channels.*",
+        "submenu": [
+            {
+                "title": "All Channels",
+                "route_name": "admin.channels.index",
+                "menu_active": [
+                    "admin.channels.index",
+                    "admin.channels.show",
+                    "admin.channels.edit",
+                    "admin.channels.create"
+                ]
+            },
+            {
+                "title": "Featured Channels",
+                "route_name": "admin.channels.featured",
+                "menu_active": "admin.channels.featured"
+            },
+            {
+                "title": "Trending Channels",
+                "route_name": "admin.channels.trending",
+                "menu_active": "admin.channels.trending"
+            }
+        ]
+    },
+    "categories": {
+        "title": "Categories",
+        "icon": "las la-list",
+        "route_name": "admin.category.index",
+        "menu_active": "admin.category.*"
+    },
+    "manage_reels": {
+        "title": "Reels",
+        "icon": "las la-film",
+        "menu_active": "admin.reels*",
+        "submenu": [
+            {
+                "title": "All Reels",
+                "route_name": "admin.reels.index",
+                "menu_active": [
+                    "admin.reels.index",
+                    "admin.reels.edit",
+                    "admin.reels.show",
+                    "admin.reels.create"
+                ]
+            },
+            {
+                "title": "Published Reels",
+                "route_name": "admin.reels.published",
+                "menu_active": "admin.reels.published"
+            },
+            {
+                "title": "Draft Reels",
+                "route_name": "admin.reels.draft",
+                "menu_active": "admin.reels.draft"
+            },
+            {
+                "title": "Liked Reels",
+                "route_name": "admin.reels.liked",
+                "menu_active": "admin.reels.liked"
+            },
+            {
+                "title": "Saved Audios",
+                "route_name": "admin.reels.saved-audios.index",
+                "menu_active": "admin.reels.saved-audios.index"
+            },
+            {
+                "title": "Duets & Remixes",
+                "route_name": "admin.reels.duets",
+                "menu_active": "admin.reels.duets"
+            }
+        ]
+    },
+    "marketplace_ratings": {
+        "title": "Ratings",
+        "icon": "las la-star",
+        "route_name": "admin.marketplace.ratings.index",
+        "menu_active": "admin.marketplace.ratings.*"
+    },
+    "onboarding": {
+        "title": "Onboarding",
+        "icon": "las la-images",
+        "route_name": "admin.onboarding-slides.index",
+        "menu_active": "admin.onboarding-slides.*"
+    },
+    "5 Premium & Subscription": {
+        "title": "OTT",
+        "icon": "las la-tv",
+        "menu_active": "admin.ott-plans.*",
+        "submenu": [
+            {
+                "title": "OTT Plans",
+                "route_name": "admin.ott-plans.index",
+                "menu_active": [
+                    "admin.ott-plans.index",
+                    "admin.ott-plans.create",
+                    "admin.ott-plans.edit",
+                    "admin.ott-plans.show"
+                ]
+            },
+            {
+                "title": "Purchased Users",
+                "route_name": "admin.ott-plans.subscriptions",
+                "menu_active": "admin.ott-plans.subscriptions"
+            }
+        ]
+    },
+    "monthly_plan": {
+        "title": "Creator Plans",
+        "icon": "las la-calendar-alt",
+        "route_name": "admin.plans.index",
+        "menu_active": "admin.plans.*"
+    },
+    "playlists": {
+        "title": "Playlists",
+        "icon": "las la-list-ol",
+        "route_name": "admin.playlist.index",
+        "menu_active": "admin.playlist.*"
+    },
+    "6 Finance Desk": {
+        "title": "Withdrawals",
+        "icon": "la la-bank",
+        "counters": [
+            "pendingWithdrawCount"
+        ],
+        "menu_active": "admin.withdraw.data*",
+        "submenu": [
+            {
+                "title": "Pending Withdrawals",
+                "route_name": "admin.withdraw.data.pending",
+                "menu_active": "admin.withdraw.data.pending",
+                "counter": "pendingWithdrawCount"
+            },
+            {
+                "title": "All Withdrawals",
+                "route_name": "admin.withdraw.data.all",
+                "menu_active": "admin.withdraw.data.all"
+            },
+            {
+                "title": "Withdrawal Methods",
+                "route_name": "admin.withdraw.method.index",
+                "menu_active": "admin.withdraw.method*"
+            },
+            {
+                "title": "Payment History",
+                "route_name": "admin.deposit.list",
+                "menu_active": [
+                    "admin.deposit.list",
+                    "admin.deposit.search"
+                ]
+            }
+        ]
+    },
+    "reports": {
+        "title": "Transactions",
+        "icon": "la la-exchange",
+        "menu_active": "admin.report*",
+        "submenu": [
+            {
+                "title": "History",
+                "route_name": "admin.report.transaction",
+                "menu_active": [
+                    "admin.report.transaction",
+                    "admin.report.transaction.search"
+                ]
+            },
+            {
+                "title": "Purchased Videos",
+                "route_name": "admin.report.playlist.history",
+                "menu_active": [
+                    "admin.report.playlist.history"
+                ]
+            },
+            {
+                "title": "Purchased Creator Plan",
+                "route_name": "admin.report.plan.history",
+                "menu_active": [
+                    "admin.report.plan.history"
+                ]
+            },
+            {
+                "title": "Users Watch History",
+                "route_name": "admin.report.watch.history",
+                "menu_active": [
+                    "admin.report.watch.history"
+                ]
+            },
+            {
+                "title": "Login History",
+                "route_name": "admin.report.login.history",
+                "menu_active": [
+                    "admin.report.login.history"
+                ]
+            },
+            {
+                "title": "Notifications",
+                "route_name": "admin.report.notification.history",
+                "menu_active": "admin.report.notification.history"
+            }
+        ]
+    },
+    "7 Interaction & Help": {
+        "title": "Support",
+        "icon": "la la-ticket",
+        "counters": [
+            "pendingTicketCount"
+        ],
+        "menu_active": "admin.ticket*",
+        "submenu": [
+            {
+                "title": "Pending Ticket",
+                "route_name": "admin.ticket.pending",
+                "menu_active": "admin.ticket.pending",
+                "counter": "pendingTicketCount"
+            },
+            {
+                "title": "All Ticket",
+                "route_name": "admin.ticket.index",
+                "menu_active": [
+                    "admin.ticket.index",
+                    "admin.ticket.view"
+                ]
+            }
+        ]
+    },
+    "subscriber": {
+        "title": "Subscribers",
+        "icon": "las la-thumbs-up",
+        "route_name": "admin.subscriber.index",
+        "menu_active": "admin.subscriber.*"
+    },
+    "comments": {
+        "title": "Comments",
+        "icon": "las la-comments",
+        "route_name": "admin.comments.index",
+        "menu_active": "admin.comments.*"
+    },
+    "security": {
+        "title": "Security & IP",
+        "icon": "las la-shield-alt",
+        "menu_active": "admin.security.*",
+        "submenu": [
+            {
+                "title": "Security Overview",
+                "route_name": "admin.security.index",
+                "menu_active": "admin.security.index"
+            },
+            {
+                "title": "Keyword Blacklist",
+                "route_name": "admin.security.blacklist.index",
+                "menu_active": "admin.security.blacklist.index"
+            }
+        ]
+    },
+    "advanced_analytics": {
+        "title": "Advanced Analytics",
+        "icon": "las la-chart-pie",
+        "menu_active": "admin.analytics.advanced.*",
+        "submenu": [
+            {
+                "title": "Revenue Reports",
+                "route_name": "admin.analytics.advanced.revenue",
+                "menu_active": "admin.analytics.advanced.revenue"
+            },
+            {
+                "title": "Video Performance",
+                "route_name": "admin.analytics.advanced.videos",
+                "menu_active": "admin.analytics.advanced.videos"
+            },
+            {
+                "title": "Audience & Device",
+                "route_name": "admin.analytics.advanced.audience",
+                "menu_active": "admin.analytics.advanced.audience"
+            }
+        ]
+    },
+    "trust_safety": {
+        "title": "Trust & Safety",
+        "icon": "las la-user-shield",
+        "menu_active": "admin.moderation.*",
+        "submenu": [
+            {
+                "title": "Reported Videos",
+                "route_name": "admin.moderation.reports.videos",
+                "menu_active": "admin.moderation.reports.videos"
+            },
+            {
+                "title": "Reported Reels",
+                "route_name": "admin.moderation.reports.reels",
+                "menu_active": "admin.moderation.reports.reels"
+            },
+            {
+                "title": "Reported Users",
+                "route_name": "admin.moderation.reports.users",
+                "menu_active": "admin.moderation.reports.users"
+            },
+            {
+                "title": "User Blocked Comments",
+                "route_name": "admin.comment.reports.index",
+                "menu_active": "admin.comment.reports.*"
+            },
+            {
+                "title": "Appeal Management",
+                "route_name": "admin.moderation.appeals",
+                "menu_active": "admin.moderation.appeals"
+            },
+            {
+                "title": "Strike History",
+                "route_name": "admin.security.strikes.index"
+            },
+            {
+                "title": "Copyright Strike Removal",
+                "route_name": "admin.moderation.strikes",
+                "menu_active": "admin.moderation.strikes"
+            }
+        ]
+    },
+    "8 System Control": {
+        "title": "System Settings",
+        "icon": "las la-life-ring",
+        "menu_active": "admin.setting.*",
+        "submenu": [
+            {
+                "title": "Core Settings",
+                "route_name": "admin.setting.system",
+                "menu_active": "admin.setting.system"
+            },
+            {
+                "title": "Keyword Blacklist",
+                "route_name": "admin.setting.keyword.blacklist",
+                "menu_active": "admin.setting.keyword.blacklist"
+            }
+        ]
+    },
+    "frontend_manager": {
+        "title": "Frontend",
+        "icon": "las la-desktop",
+        "menu_active": "admin.frontend.*",
+        "submenu": [
+            {
+                "title": "Manage Sections",
+                "route_name": "admin.frontend.index",
+                "menu_active": "admin.frontend.index"
+            },
+            {
+                "title": "Policy Pages",
+                "route_name": "admin.frontend.sections",
+                "menu_active": "admin.frontend.sections",
+                "params": {
+                    "key": "policy_pages"
+                }
+            }
+        ]
+    },
+    "extra": {
+        "title": "Optimization",
+        "icon": "la la-server",
+        "menu_active": "admin.system*",
+        "submenu": [
+            {
+                "title": "Clear Cache",
+                "route_name": "admin.system.optimize",
+                "menu_active": "admin.system.optimize"
+            }
+        ]
+    }
+}

@@ -1,0 +1,95 @@
+<?php
+
+namespace App\Lib;
+
+class ClientInfo
+{
+    public static function ipInfo()
+    {
+        $ip = getRealIP();
+        $data = [
+            'country' => [],
+            'city' => [],
+            'area' => [],
+            'code' => [],
+            'long' => [],
+            'lat' => [],
+            'ip' => $ip,
+            'time' => date('Y-m-d h:i:s A'),
+        ];
+
+        $json = @file_get_contents("http://ip-api.com/json/{$ip}?fields=status,country,countryCode,city,lat,lon,query", false, stream_context_create(['http' => ['timeout' => 3]]));
+        $info = json_decode($json, true);
+        if (! is_array($info) || ($info['status'] ?? '') !== 'success') {
+            return $data;
+        }
+
+        $data['country'] = $info['country'] ?? [];
+        $data['city'] = $info['city'] ?? [];
+        $data['code'] = $info['countryCode'] ?? [];
+        $data['long'] = (string) ($info['lon'] ?? '');
+        $data['lat'] = (string) ($info['lat'] ?? '');
+        $data['ip'] = $info['query'] ?? $ip;
+
+        return $data;
+    }
+
+    public static function osBrowser()
+    {
+        $userAgent = $_SERVER['HTTP_USER_AGENT'];
+        $osPlatform = 'Unknown OS Platform';
+        $osArray = [
+            '/windows nt 10/i' => 'Windows 10',
+            '/windows nt 6.3/i' => 'Windows 8.1',
+            '/windows nt 6.2/i' => 'Windows 8',
+            '/windows nt 6.1/i' => 'Windows 7',
+            '/windows nt 6.0/i' => 'Windows Vista',
+            '/windows nt 5.2/i' => 'Windows Server 2003/XP x64',
+            '/windows nt 5.1/i' => 'Windows XP',
+            '/windows xp/i' => 'Windows XP',
+            '/windows nt 5.0/i' => 'Windows 2000',
+            '/windows me/i' => 'Windows ME',
+            '/win98/i' => 'Windows 98',
+            '/win95/i' => 'Windows 95',
+            '/win16/i' => 'Windows 3.11',
+            '/macintosh|mac os x/i' => 'Mac OS X',
+            '/mac_powerpc/i' => 'Mac OS 9',
+            '/linux/i' => 'Linux',
+            '/ubuntu/i' => 'Ubuntu',
+            '/iphone/i' => 'iPhone',
+            '/ipod/i' => 'iPod',
+            '/ipad/i' => 'iPad',
+            '/android/i' => 'Android',
+            '/blackberry/i' => 'BlackBerry',
+            '/webos/i' => 'Mobile',
+        ];
+        foreach ($osArray as $regex => $value) {
+            if (preg_match($regex, $userAgent)) {
+                $osPlatform = $value;
+            }
+        }
+        $browser = 'Unknown Browser';
+        $browserArray = [
+            '/msie/i' => 'Internet Explorer',
+            '/firefox/i' => 'Firefox',
+            '/safari/i' => 'Safari',
+            '/chrome/i' => 'Chrome',
+            '/edge/i' => 'Edge',
+            '/opera/i' => 'Opera',
+            '/netscape/i' => 'Netscape',
+            '/maxthon/i' => 'Maxthon',
+            '/konqueror/i' => 'Konqueror',
+            '/mobile/i' => 'Handheld Browser',
+        ];
+        foreach ($browserArray as $regex => $value) {
+            if (preg_match($regex, $userAgent)) {
+                $browser = $value;
+            }
+        }
+
+        $data['os_platform'] = $osPlatform;
+        $data['browser'] = $browser;
+
+        return $data;
+    }
+}

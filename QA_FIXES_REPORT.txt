@@ -1,0 +1,137 @@
+QA FIXES REPORT - HOW IT WORKS
+==============================
+Date: 2026-09-29
+
+--------------------------------------------------------------------------------
+1. RAW DATA TEXT SHOWING AS A PAGE (MARKETPLACE + SUPPORT TICKETS)
+--------------------------------------------------------------------------------
+What was wrong:
+  Sometimes, instead of the normal page, the screen showed raw data text
+  (a block of code-like text starting with {"html":...}). This happened on
+  refresh, back button, shared links or pagination clicks.
+
+How it works now:
+  Opening or refreshing the page always shows the full normal page, never
+  the raw text. Using search, filters or page numbers updates only the
+  list inside the page without reloading. The count badges above the
+  ticket list also refresh with every filter. The raw text still exists
+  behind the scenes for the page to fetch (visible only in browser
+  developer tools), but users can never land on it.
+
+--------------------------------------------------------------------------------
+2. EMAIL CHECKING (ACCOUNT SIGN-UP + TALENT JOIN FORMS)
+--------------------------------------------------------------------------------
+What was already fine:
+  The final email checking on the server was already correct, so it was
+  left untouched.
+
+What was improved:
+  The talent join form now gives the same instant feedback as the account
+  sign-up form: empty, too-long and badly-typed emails are flagged
+  immediately, and common misspellings (like gmial.com) are rejected at
+  once.
+
+How the email check works (for testers):
+  1. Format check (instant): must look like name@domain ending.
+  2. Typo check (instant): known misspellings are rejected immediately.
+  3. Mail-server check (about 1 second): the server asks whether the
+     domain really exists and can receive mail. Popular domains pass. A
+     fake ending like gmail.cok fails with "domain does not exist". A
+     made-up company domain with no mail setup also fails, while any real
+     company domain with mail setup passes.
+
+--------------------------------------------------------------------------------
+3. HISTORY PLAYLIST COUNT SHOWED A DELETED WATCH LATER VIDEO
+--------------------------------------------------------------------------------
+What was wrong:
+  After deleting a video from Watch Later, the History playlist box still
+  counted it (showed 2 instead of 1), because it counted everything ever
+  saved, including hidden or unavailable videos.
+
+How it works now:
+  The History playlist box and the Watch Later list use the exact same
+  counting rule: only videos you can actually watch. Delete a video from
+  Watch Later and the History count drops together, with the correct
+  thumbnail.
+
+--------------------------------------------------------------------------------
+4. LIKED VIDEOS DELETE + FAST REPEATED CLICKS
+--------------------------------------------------------------------------------
+What was wrong:
+  The delete button switched the like off and on with every click. Four
+  fast clicks meant off, on, off, on - ending switched on, so the video
+  stayed. The screen also said "Removed" without waiting for confirmation.
+
+How it works now:
+  Delete means delete, always: one click or forty fast clicks all end at
+  "removed" - it can never switch back on by clicking fast. The row
+  disappears instantly on the first click, the remaining rows renumber
+  themselves (1, 2, 3...) and the total video count updates at once. If
+  the internet fails, the list restores itself and shows an error instead
+  of pretending.
+
+--------------------------------------------------------------------------------
+5. WATCH LATER PAGE + PLAYLIST DETAIL PAGES (SAME BEHAVIOUR)
+--------------------------------------------------------------------------------
+What was wrong: same toggle and numbering problems as Liked Videos.
+
+How it works now:
+  Watch Later page: identical behaviour to Liked Videos - instant removal,
+  safe fast clicks, live serial numbers and live video count.
+  Playlist detail pages: delete removes the entry instantly, video numbers
+  close up, both count labels on the page update, and an emptied playlist
+  shows its empty state. Fast repeated clicks are harmless.
+
+--------------------------------------------------------------------------------
+6. STUDIO CONTENT WATCH LATER SHOWED A REMOVED VIDEO
+--------------------------------------------------------------------------------
+What was wrong:
+  The studio Watch Later tab listed videos the main Watch Later page
+  hides (hidden or unavailable ones), and its total counted entries the
+  screen skipped - so the total and the visible rows disagreed.
+
+How it works now:
+  The studio tab uses the same visibility rule as Watch Later: only
+  watchable videos are counted and shown. Remove a video from Watch Later
+  and, on a fresh load of the studio page, it is gone there too with
+  matching counts. Note: studio tabs show what was loaded with the page,
+  so retest by loading the page fresh after deleting.
+
+--------------------------------------------------------------------------------
+7. REELS VIDEO FREEZING MID-PLAY (SLOW NETWORK)
+--------------------------------------------------------------------------------
+What was wrong:
+  When the network slowed during playback, the picture froze with no
+  loading sign and sometimes never continued.
+
+How it works now:
+  Good network: nothing looks different, videos play as before.
+  Slow network freeze: a spinner appears over the video at once. If the
+  freeze lasts a few seconds, the words "Slow connection..." appear so it
+  is clear the video is loading, not broken. A few seconds later the
+  player automatically nudges the stream, and playback continues by
+  itself from where it froze - no tapping or refreshing needed.
+  Honest limit: if a video file permanently needs more speed than the
+  user has (heavy file on a 2 Mbps line), it will freeze again after
+  resuming - that specific case needs a lighter video file, which is a
+  separate step if observed.
+
+--------------------------------------------------------------------------------
+8. MOBILE HEADER OVERLAP ON STUDIO PAGES
+--------------------------------------------------------------------------------
+What was wrong:
+  On mobile, studio pages showed two headers stacked on top of each other
+  (the main app header over the studio toolbar), so the header looked
+  wrong or appeared inconsistently depending on scrolling.
+
+How it works now:
+  Mobile studio pages show exactly one header: their own toolbar with the
+  Menu button and title. Desktop studio pages are unchanged.
+
+--------------------------------------------------------------------------------
+RETEST NOTES
+--------------------------------------------------------------------------------
+* Refresh the page once before testing (hold Ctrl + Shift + R).
+* Try spam-clicking delete buttons as fast as possible: entries vanish
+  instantly, numbers close up, counts match, and a refresh keeps them gone.
+* If anything fails, note the page, the action and attach a screenshot.

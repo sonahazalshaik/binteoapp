@@ -1,0 +1,40 @@
+========================================================
+VERIFYING LOGIC FOR 1 SUBSCRIBERS
+========================================================
+Creating mock subscribers and FCM tokens...
+Successfully created database sandbox entries.
+T2 - T1 (Time to dispatch NotifySubscribers parent job): 30.32 ms
+Executing NotifySubscribers synchronously to measure pipeline performance...
+NotifySubscribers execution time: 32.3 ms
+Jobs created in active queue: 3
+Database sandbox rollback completed successfully.
+========================================================
+VERIFYING LOGIC FOR 100 SUBSCRIBERS
+========================================================
+Creating mock subscribers and FCM tokens...
+Successfully created database sandbox entries.
+T2 - T1 (Time to dispatch NotifySubscribers parent job): 1.28 ms
+Executing NotifySubscribers synchronously to measure pipeline performance...
+NotifySubscribers execution time: 190.51 ms
+Jobs created in active queue: 102
+Database sandbox rollback completed successfully.
+========================================================
+VERIFYING LOGIC FOR 1000 SUBSCRIBERS
+========================================================
+Creating mock subscribers and FCM tokens...
+Successfully created database sandbox entries.
+T2 - T1 (Time to dispatch NotifySubscribers parent job): 1.71 ms
+Executing NotifySubscribers synchronously to measure pipeline performance...
+NotifySubscribers execution time: 2762.58 ms
+Jobs created in active queue: 1003
+Database sandbox rollback completed successfully.
+========================================================
+VERIFYING LOGIC FOR 10000 SUBSCRIBERS
+========================================================
+Creating mock subscribers and FCM tokens...
+Successfully created database sandbox entries.
+T2 - T1 (Time to dispatch NotifySubscribers parent job): 8.64 ms
+Executing NotifySubscribers synchronously to measure pipeline performance...
+NotifySubscribers execution time: 12748.31 ms
+Jobs created in active queue: 10021
+Database sandbox rollback completed successfully.

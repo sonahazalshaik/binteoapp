@@ -1,0 +1,170 @@
+================================================================================
+                        PROJECT AUDIT REPORT: BINTEO OTT
+================================================================================
+AUDIT AREAS:
+1. VIDEO UPLOAD PROCESS (TUS CLIENT-SIDE & DIRECT BACKEND FALLBACK)
+2. REEL UPLOAD PROCESS (TUS CLIENT-SIDE & DIRECT BACKEND FALLBACK)
+3. SECURITY & PERFORMANCE SYSTEMS
+4. WATCHTIME LOGIC & TRACKING MECHANISMS FOR CREATORS
+5. ENTIRE CREATOR MONETIZATION LOGIC (TIERS, WALLET, PAYOUTS & COMMISSIONS)
+================================================================================
+
+--------------------------------------------------------------------------------
+1. VIDEO UPLOAD PROCESS
+--------------------------------------------------------------------------------
+The project utilizes a hybrid upload approach optimized for speed, reliability, and network stability. By default, it uses the TUS resumable upload protocol to upload directly to BunnyCDN. It automatically falls back to a backend server-side upload if the client network drops or encounters CORS errors.
+
+Upload Flow:
+A. Frontend Initializer (Alpine.js + TUS Client):
+   - Location: `resources/views/frontend/videos/create.blade.php`
+   - User inputs metadata (Title, Description, Category, Tags, Visibility, Pricing Tier, Price).
+   - When the user clicks "Publish Video", `startUpload(false)` triggers.
+   - 1. Handshake request (POST) sent to `/videos/prepare-upload` with video metadata.
+   
+B. Backend Preparation (UploadService):
+   - Location: `app/Services/Frontend/UploadService.php::prepareUpload()`
+   - Validates metadata, registers the video in the database (status: draft/published, bunny_status: uploading).
+   - Contacts BunnyCDN API to create a video placeholder container (`createVideo()`), retrieving a unique Bunny `guid`.
+   - Generates TUS authorization parameters using `getTusUploadParams()`:
+     * Signature = SHA256(LibraryId + ApiKey + ExpirationTime + VideoId)
+     * Expiration = Unix timestamp (current time + 24 hours).
+   - Returns parameters to frontend: `{success: true, video_id, bunny_id, tus: {endpoint, headers: {...}}}`.
+
+C. Direct CDN Upload (Client TUS):
+   - Frontend starts `new tus.Upload()` with the target endpoint, headers, and 2MB chunk sizes (`chunkSize: 2 * 1024 * 1024`).
+   - Overrides the client fingerprint:
+     `fingerprint: (file, options) => Promise.resolve('tus-unique-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9))`
+     * This avoids conflicts when uploading identical files repeatedly.
+   - Shows progress in a Swal popup loader. On successful completion, resolves the promise.
+
+D. Resilient Server-Side Fallback:
+   - If the TUS direct client upload fails (CORS, network drop, HTTP/2 connection pooling error), the `catch(error)` block interceptor triggers.
+   - Changes the loading message to "CDN connection reset. Retrying via secure backup server upload...".
+   - Sends the video file to the backend `/videos/direct-upload` endpoint (handled by `DirectUploadController@uploadVideo` / `UploadService::uploadVideoDirect()`).
+   - The Laravel backend uploads the file directly to BunnyCDN using standard PHP HTTP client `PUT` requests, bypassing any client browser limitations.
+
+E. Post-Upload Success:
+   - Uploads thumbnail if selected (`/videos/{slug}/thumbnail`).
+   - Dispatches firebase and web socket broadcast notifications to subscribers.
+   - Redirects to Studio Dashboard.
+
+--------------------------------------------------------------------------------
+2. REEL UPLOAD PROCESS
+--------------------------------------------------------------------------------
+Reel uploads use the same secure handshake and direct-to-CDN TUS protocol as videos, but feature specific constraints, music overlays, and post-processing.
+
+Upload Flow:
+A. Frontend Creation Modes:
+   - Location: `resources/views/frontend/reels/create.blade.php`
+   - Supports: 
+     1. Uploading local video files.
+     2. Recording directly via browser camera using the MediaRecorder API.
+   - Allows users to select audio tracks (global, library, or custom upload) and trim the volume.
+
+B. Backend Handshake:
+   - Endpoint: `/reels/prepare-upload` -> `BunnyUploadController@prepareReelUpload` -> `UploadService::prepareReelUpload()`.
+   - Validates that duration is under 90 seconds.
+   - Registers Reel record (bunny_status: uploading).
+   - Auto-extracts hashtags (`#tag`) and mentions (`@username`) from the description, linking them in `ReelHashtag`, `ReelTag`, and `ReelMention` tables.
+   - Returns TUS parameters.
+
+C. Direct Upload & Fallback:
+   - Uploads using `tus-js-client` with a unique fingerprint override and a 2MB chunk size.
+   - Falls back to server-side backup `/reels/direct-upload` (`UploadService::uploadReelDirect()`) if the client TUS connection fails.
+
+D. Processing & Compression Queue:
+   - After a successful upload, dispatches the queue job `CompressReel`.
+   - Normalizes audio volume, scales/transcodes the video format, and updates bunny_status.
+
+--------------------------------------------------------------------------------
+3. SECURITY & PERFORMANCE SYSTEMS
+--------------------------------------------------------------------------------
+Security Layer:
+1. Authentication: Enforced via standard session authentication and Sanctum tokens for API endpoints.
+2. Ownership Authorization: Strict matching check on all upload/modify endpoints (`auth()->id() == $video->user_id`).
+3. CORS Policy: Custom CORS proxy controllers configured for environments where direct external uploads are restricted.
+4. Input Sanitization: Input validation constraints prevent scripts or dangerous payloads, dynamically replacing malicious patterns on input focus.
+5. Signed URLs: Serves video files through expiring, token-hashed BunnyCDN HLS signatures to prevent unauthorized hotlinking or scraping.
+
+Performance Layer:
+1. Browser Direct Uploads (TUS): Bypasses Laravel backend bandwidth, freeing server resources.
+2. 2MB Chunks: Highly stable, allowing chunked resuming on mobile data connections without full file re-upload.
+3. Queue Processing: Handled asynchronously (notifications, video transcoding) to keep request cycles under 150ms.
+4. Animated Previews: Loads light WebP animated previews (/preview.webp) instead of raw video sources in grids.
+
+--------------------------------------------------------------------------------
+4. WATCHTIME LOGIC & TRACKING MECHANISMS FOR CREATORS
+--------------------------------------------------------------------------------
+Watch time acts as the primary telemetry metric for creator ranking and platform validation.
+
+A. Watch Session Tracking (VideoWatchLog):
+   - Managed via `/analytics/ping/video` which resolves to `AnalyticsService`.
+   - When a user starts watching a video, the frontend sends periodic pings containing a unique `session_token`, `video_id`, and `progress_seconds`.
+   - Tracks:
+     * `watch_duration_seconds`: Total active watch time during the session.
+     * `completion_percentage`: Calculated against total duration.
+   - Increments video total watch time: `Video::where('id', $video_id)->increment('total_watch_time', $delta)`.
+
+B. User Progress Tracking (WatchHistory):
+   - Updates progress logs for the specific authenticated user.
+   - Automatically flags `is_completed = true` once progress reaches the threshold, adding to the user's historical feed.
+
+C. Analytical Aggregations:
+   - Command: `php artisan aggregate:daily-analytics`.
+   - Merges hourly tracking tables, calculating the exact average watch time (`avg_watch_time_seconds`) and daily milestones.
+
+--------------------------------------------------------------------------------
+5. ENTIRE CREATOR MONETIZATION LOGIC
+--------------------------------------------------------------------------------
+The project features a complete creator economy allowing creators to monetize content directly.
+
+A. Pricing Tiers:
+   - Creators can set a `pricing_tier` when creating/editing videos or reels:
+     1. Free (0): Open to all visitors.
+     2. Premium (1): Available to premium subscription plan members.
+     3. Exclusive (2): Available only via single-video purchase.
+
+B. single-Video Purchases:
+   - If a video is Exclusive, it is locked behind a purchase barrier.
+   - When a user purchases a video, a transaction is registered:
+     * Debits the buyer's balance.
+     * Credits the creator's balance.
+     * Registers a new purchase token allowing perpetual playback authorization.
+
+C. Creator Balance & Wallets:
+   - Wallet balances are tracked in the database for each user.
+   - Every transaction generates a detailed ledger entry (`WalletTransaction`).
+
+D. Admin Commission & Fees:
+   - The platform calculates a platform commission on all single-video purchases and premium plan distributions.
+   - Example: If a video costs $10.00 and the commission rate is set to 15%, the creator receives $8.50 and the platform retains $1.50.
+
+E. Payouts (Withdrawals):
+   - Creators can request payouts once their wallet balance exceeds the minimum threshold.
+   - Admin approves or rejects payouts through the admin panel dashboard.
+   - Supported payout options include bank transfers, cards, and custom localized gateways.
+
+--------------------------------------------------------------------------------
+6. TUS CLIENT-SIDE DIRECT UPLOAD ISSUES vs. HISTORICAL SCALABILITY CHANGES
+--------------------------------------------------------------------------------
+Context of Previous Implementation:
+- In previous iterations, the project utilized server-forwarded direct video uploads (preupload then streaming upload).
+- According to SCALABILITY_REPORT.txt, this caused critical server bottlenecks: synchronous transcoding and media forwarding blocked PHP-FPM workers, crashing the server when multiple users uploaded concurrent videos.
+- To resolve this scalability issue, client-side TUS direct-to-CDN uploads were introduced (direct from client browser to video.bunnycdn.com).
+
+The Issues Faced by Direct TUS Client Uploads:
+1. Mobile Connection Drops & Timeouts:
+   - On cellular networks, standard browsers have frequent latency spikes. The previous large chunk size (10MB) regularly timed out or caused connection resets midway, resulting in a low-level browser `ProgressEvent` error at offset 0.
+2. Duplicate Upload Fingerprint Conflict:
+   - If a creator uploaded the exact same video file within a short time frame (e.g. re-uploading after a mistake), the default TUS client generated an identical file fingerprint. 
+   - It would try to resume the upload using the old, expired BunnyCDN upload session URL instead of initiating a fresh one, leading to CORS/CURL security blocks.
+
+Implemented Fixes & Staging Solved State:
+1. Unique Fingerprint Override:
+   - We forced the uploader to generate a completely randomized, unique session fingerprint for every upload. This prevents the browser from ever attempting to reuse or resume an expired session.
+2. Bandwidth-Optimized Chunking (2MB):
+   - Reduced the chunk size to 2MB to keep connections fast, avoiding timeouts and network resets on mobile networks.
+3. Automatic Backend Server Fallback Loop:
+   - Implemented an intelligent fallback mechanism. If the browser TUS direct upload encounters a connection reset or network error, it instantly switches the UI loader to backup mode and uploads the payload via `/videos/direct-upload` through the Laravel backend. This combines client-side scalability with server-side reliability.
+================================================================================
+

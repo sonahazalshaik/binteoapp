@@ -1,0 +1,224 @@
+╔══════════════════════════════════════════════════════════════╗
+║        MARKETPLACE ARCHITECTURE PATTERN                     ║
+║     app/Http/Controllers/ + app/Http/Controllers/Admin/    ║
+╚══════════════════════════════════════════════════════════════╝
+
+══════════════════════════════════════════════════════════════
+  1. MARKETPLACE MODULE OVERVIEW
+══════════════════════════════════════════════════════════════
+
+  The Marketplace is a talent discovery platform where creators
+  (Actors, Influencers) connect with Investors/Producers.
+
+  It has its own auth system, portfolio management, gallery,
+  services, subscriptions, messaging, and admin management.
+
+══════════════════════════════════════════════════════════════
+  2. ALL MARKETPLACE CONTROLLERS
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  FRONTEND (root level):                                 │
+  │  ─────────────────────────────────────────────────────  │
+  │  MarketPlaceController.php                              │
+  │    → Handles public browsing, registration, login,     │
+  │      portfolio display, gallery, subscriptions,         │
+  │      messaging, dashboard                               │
+  │    → View path: activeTemplate() . 'marketplace.*'     │
+  │    → Auth: \App\Http\Middleware\MarketplaceAuth         │
+  │                                                        │
+  │  ADMIN (app/Http/Controllers/Admin/):                   │
+  │  ─────────────────────────────────────────────────────  │
+  │  MarketController.php           → Talent CRUD           │
+  │  MarketGalleryController.php    → Gallery management    │
+  │  MarketPortfolioController.php  → Portfolio management  │
+  │  MarketServiceController.php    → Service listings      │
+  │  MarketContactController.php    → Contact/messages      │
+  │  MarketTransactionController.php→ Transactions          │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  3. MARKETPLACE MODELS
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  MarketPlace              → Talent profiles            │
+  │  MarketGallery            → Image gallery assets       │
+  │  MarketPortfolio          → Portfolio entries          │
+  │  MarketPortfolioImage     → Portfolio images           │
+  │  MarketService            → Service offerings          │
+  │  MarketContact            → Contact inquiries          │
+  │  MarketMessage            → Messages                   │
+  │  MarketSubscription       → Subscription plans         │
+  │  MarketSubscriptionPayment→ Payment records            │
+  │  MarketplaceRating        → Reviews/ratings            │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  4. MARKETPLACE ROUTES (from web.php)
+══════════════════════════════════════════════════════════════
+
+  ┌─ PUBLIC ROUTES ─────────────────────────────────────────┐
+  │  GET  /marketplace              → MarketPlaceController@index     │
+  │  GET  /marketplace/all          → MarketPlaceController@all       │
+  │  GET  /marketplace/featured     → MarketPlaceController@featured  │
+  │  GET  /marketplace/portfolio/{slug} → @portfolio                 │
+  │  GET  /marketplace/gallery      → @gallery                       │
+  │  GET  /marketplace/terms        → Terms page                     │
+  │  GET  /m/{slug}                 → Short portfolio URL            │
+  └─────────────────────────────────────────────────────────┘
+
+  ┌─ AUTH ROUTES (no middleware) ───────────────────────────┐
+  │  GET  /marketplace/register     → Show registration form│
+  │  POST /marketplace/register     → Register talent       │
+  │  GET  /marketplace/login        → Show login form       │
+  │  POST /marketplace/login        → Login talent          │
+  │  POST /marketplace/check-availability → Check username  │
+  └─────────────────────────────────────────────────────────┘
+
+  ┌─ PROTECTED ROUTES (MarketplaceAuth middleware) ─────────┐
+  │  GET  /marketplace/dashboard    → Dashboard             │
+  │  POST /marketplace/logout       → Logout                │
+  │                                                        │
+  │  ASSETS:                                                │
+  │  POST /marketplace/gallery      → Upload gallery image  │
+  │  POST /marketplace/services     → Add service           │
+  │  POST /marketplace/avatar       → Update avatar         │
+  │  POST /marketplace/profile/update → Update profile      │
+  │                                                        │
+  │  PORTFOLIO:                                             │
+  │  POST /marketplace/portfolio    → Create portfolio      │
+  │  POST /marketplace/portfolio/delete/{id} → Delete       │
+  │  POST /marketplace/portfolio/image/delete/{id} → Delete │
+  │                                                        │
+  │  SUBSCRIPTIONS:                                         │
+  │  GET  /marketplace/plan/{id}/preview → Preview plan     │
+  │  POST /marketplace/plan/buy/{id} → Buy plan             │
+  │  POST /marketplace/plan/verify → Verify payment         │
+  │                                                        │
+  │  CONTENT MANAGEMENT:                                    │
+  │  POST /marketplace/gallery/update/{id}                  │
+  │  POST /marketplace/gallery/delete/{id}                  │
+  │  POST /marketplace/service/update/{id}                  │
+  │  POST /marketplace/service/delete/{id}                  │
+  │  POST /marketplace/contact/delete/{id}                  │
+  │  POST /marketplace/message/reply/{id}                   │
+  └─────────────────────────────────────────────────────────┘
+
+  ┌─ ADMIN ROUTES ─────────────────────────────────────────┐
+  │  (All under admin/ prefix, admin middleware)            │
+  │  MarketController → index, create, store, edit,        │
+  │                     update, show, status, destroy       │
+  │  MarketGalleryController → index, create, store,       │
+  │                            update, delete, approve      │
+  │  MarketPortfolioController  → CRUD                     │
+  │  MarketServiceController    → CRUD                     │
+  │  MarketContactController    → CRUD, reply              │
+  │  MarketTransactionController→ Index, detail, refund    │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  5. VIEW STRUCTURE
+══════════════════════════════════════════════════════════════
+
+  ┌─ FRONTEND (templates/basic/marketplace/) ──────────────┐
+  │  marketplace/                                           │
+  │  ├── index.blade.php           → Browse all talent      │
+  │  ├── all.blade.php             → Filtered view          │
+  │  ├── featured.blade.php        → Featured talent        │
+  │  ├── portfolio.blade.php       → Single talent profile  │
+  │  ├── gallery.blade.php         → Gallery view           │
+  │  ├── dashboard.blade.php       → Talent dashboard       │
+  │  ├── register.blade.php        → Registration form      │
+  │  ├── login.blade.php           → Login form             │
+  │  ├── preview.blade.php         → Preview plan           │
+  │  ├── terms.blade.php           → Terms & conditions     │
+  │  └── sections/                                         │
+  │      ├── contacts.blade.php    → Contact inquiries      │
+  │      ├── dashboard.blade.php   → Dashboard partials     │
+  │      ├── gallery.blade.php     → Gallery partials       │
+  │      ├── messages.blade.php    → Messaging              │
+  │      ├── modals.blade.php      → Modal dialogs          │
+  │      ├── plans.blade.php       → Subscription plans     │
+  │      ├── portfolio.blade.php   → Portfolio section      │
+  │      ├── profile.blade.php     → Profile edit           │
+  │      ├── scripts.blade.php     → JS includes            │
+  │      ├── services.blade.php    → Services section       │
+  │      └── transactions.blade.php→ Transactions           │
+  └─────────────────────────────────────────────────────────┘
+
+  ┌─ ADMIN (admin/marketplace/) ───────────────────────────┐
+  │  marketplace/                                           │
+  │  ├── index.blade.php           → Talent list            │
+  │  ├── create.blade.php          → Create talent          │
+  │  ├── edit.blade.php            → Edit talent            │
+  │  ├── show.blade.php            → Talent detail          │
+  │  ├── gallery/                  → Gallery CRUD           │
+  │  ├── portfolios/               → Portfolio CRUD         │
+  │  ├── services/                 → Service CRUD           │
+  │  ├── contacts/                 → Contact management     │
+  │  └── transactions/             → Transaction history    │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  6. MARKETPLACE SERVICES TO CREATE
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  FRONTEND (in app/Services/):                          │
+  │  ─────────────────────────────────────────────────────  │
+  │  1. MarketPlaceService.php     → MarketPlaceController │
+  │     Methods:                                              │
+  │     - getTalents($request)     → Browse with filters   │
+  │     - getPortfolio($slug)      → Talent profile page   │
+  │     - registerTalent($data)    → Registration + auth   │
+  │     - loginTalent($credentials)→ Login + session       │
+  │     - updateProfile($user, $data) → Profile update     │
+  │     - uploadGallery($user, $file) → Gallery upload     │
+  │     - createPortfolio($user, $data) → Portfolio entry  │
+  │     - addService($user, $data) → Service listing       │
+  │     - buyPlan($user, $planId)  → Subscribe to plan     │
+  │     - verifyPlanPayment($data) → Payment verification  │
+  │     - sendMessage($from, $to, $msg) → Messaging        │
+  │     - getDashboardData($user)  → Dashboard stats       │
+  │                                                        │
+  │  ADMIN (in app/Services/Admin/):                        │
+  │  ─────────────────────────────────────────────────────  │
+  │  2. MarketTalentService.php    → MarketController       │
+  │  3. MarketGalleryService.php   → MarketGalleryController│
+  │  4. MarketPortfolioService.php → MarketPortfolioController│
+  │  5. MarketServiceService.php   → MarketServiceController│
+  │  6. MarketContactService.php   → MarketContactController│
+  │  7. MarketTransactionService.php→ MarketTransactionController│
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  7. SERVICE CREATION SUMMARY
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  AREA           │ CONTROLLERS │ SERVICES TO CREATE      │
+  ├─────────────────────────────────────────────────────────┤
+  │  Frontend       │ 1           │ MarketPlaceService.php  │
+  │  Admin          │ 6           │ 6 service files         │
+  │  Total          │ 7           │ 7 services              │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  ⚠  DO'S & DON'TS
+══════════════════════════════════════════════════════════════
+
+  ✅ DO's:
+  • Keep existing MarketPlaceController.php at root level —
+    moving it will break ALL marketplace routes.
+  • Keep existing Admin marketplace controllers in Admin/.
+  • Use MarketPlaceService for new marketplace features.
+  • Use MarketplaceAuth middleware for protected routes.
+
+  ❌ DON'Ts:
+  • DON'T rename MarketPlaceController — routes reference it.
+  • DON'T delete the existing marketplace login/register flow.
+  • DON'T change the marketplace session auth logic
+    (it uses its own guard, not Laravel's default).
+  • DON'T modify existing marketplace migration files.
+  • DON'T remove existing portfolio image handling logic.

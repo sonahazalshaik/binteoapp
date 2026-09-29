@@ -1,0 +1,327 @@
+╔══════════════════════════════════════════════════════════════╗
+║         FRONTEND (WEB) ARCHITECTURE PATTERN                 ║
+║        app/Http/Controllers/ (root level)                   ║
+╚══════════════════════════════════════════════════════════════╝
+
+CONTROLLER TIERS:
+  Web   → app/Http/Controllers/ (root level — 27 action controllers)
+  API   → app/Http/Controllers/Api/ (JSON via Resources)
+  Admin → app/Http/Controllers/Admin/ (Bootstrap 5 Admin Panel)
+  User  → app/Http/Controllers/User/ (Client dashboard)
+  Auth  → app/Http/Controllers/Auth/ (Login/Register/Password)
+  Gateway → app/Http/Controllers/Gateway/ (Payment processing)
+
+══════════════════════════════════════════════════════════════
+  WEB CONTROLLER → SERVICE → RESPONSE FLOW
+══════════════════════════════════════════════════════════════
+
+  Browser Request
+       │
+       ▼
+  Root\Controller@method                ← Handles request/response only
+       │
+       │  ┌─ Validation: $request->validate() or Validator::make()
+       │  ├─ Auth: auth()->user() / auth()->check()
+       │  ├─ Service: $this->xxxService->method()
+       │  └─ Common Data: gs(), activeTemplate()
+       │
+       ▼
+  App\Services\XxxService               ← All business logic here
+       │
+       │  ┌─ Queries Models (Eloquent)
+       │  ├─ Encapsulates all business rules
+       │  ├─ Returns arrays or collections to controller
+       │  └─ Never touches request/session directly
+       │
+       ▼
+  Response: view(activeTemplate() . 'path', $data)
+            or redirect()->route() with ->withNotify($notify)
+            or response()->json() for AJAX
+
+══════════════════════════════════════════════════════════════
+  ALL 27 ROOT ACTION CONTROLLERS
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  #  CONTROLLER              SERVICE NEEDED              │
+  ├─────────────────────────────────────────────────────────┤
+  │  1  VideoController         VideoService.php            │
+  │  2  ReelController          ReelService.php             │
+  │  3  ReelActionController    ReelService.php (merge)     │
+  │  4  ChannelController       ChannelService.php          │
+  │  5  HomeController          HomeService.php             │
+  │  6  SearchController        SearchService.php           │
+  │  7  PlaylistController      PlaylistService.php         │
+  │  8  CommentController       CommentService.php          │
+  │  9  CommentModerationCtrl   CommentService.php (merge)  │
+  │ 10  SubscriptionController  SubscriptionService.php     │
+  │ 11  LikeController          (merge into VideoService)   │
+  │ 12  StudioController        StudioService.php           │
+  │ 13  StudioAnalyticsCtrl     StudioService.php (merge)   │
+  │ 14  MembershipController    MembershipService.php       │
+  │ 15  LiveStreamController    LiveStreamService.php       │
+  │ 16  ProfileController       ProfileService.php          │
+  │ 17  TicketController        TicketService.php           │
+  │ 18  PreviewController       PreviewService.php          │
+  │ 19  AnalyticsController     AnalyticsService.php        │
+  │ 20  AnalyticsEventControllerAnalyticsService.php (merge)│
+  │ 21  BunnyUploadController   UploadService.php           │
+  │ 22  DirectUploadController  UploadService.php (merge)   │
+  │ 23  BunnyWebhookController  (keep as-is, infra)         │
+  │ 24  TusProxyController      (keep as-is, infra)         │
+  │ 25  CronController          (keep as-is, infra)         │
+  │ 26  SiteController          (keep as-is, static pages)  │
+  │ 27  OnboardingController    (keep as-is, simple)        │
+  │                                                           
+  │  EXCLUDED (documented elsewhere):                        
+  │     Controller.php           → Base class (not action)   
+  │     MarketPlaceController    → marketplace.txt           
+  │     ApiAuthController        → auth.txt                  
+  │     GoogleController         → auth.txt (Google OAuth)   
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  STANDARD WEB CONTROLLER TEMPLATE
+══════════════════════════════════════════════════════════════
+
+  <?php
+
+  namespace App\Http\Controllers;
+
+  use App\Http\Controllers\Controller;
+  use App\Services\XxxService;
+  use Illuminate\Http\Request;
+
+  class XxxController extends Controller
+  {
+      protected XxxService $xxxService;
+
+      public function __construct(XxxService $xxxService)
+      {
+          $this->xxxService = $xxxService;
+      }
+
+      public function index(Request $request)
+      {
+          $data = $this->xxxService->getAll($request);
+
+          if ($request->ajax()) {
+              return response()->json($data);
+          }
+
+          return view(activeTemplate() . 'xxx.index', $data);
+      }
+
+      public function show($id)
+      {
+          $data = $this->xxxService->getById($id);
+
+          if (!$data) {
+              $notify[] = ['error', 'Not found'];
+              return redirect()->route('home')->withNotify($notify);
+          }
+
+          return view(activeTemplate() . 'xxx.show', $data);
+      }
+
+      public function store(Request $request)
+      {
+          $request->validate([
+              'name' => 'required|string|max:255',
+          ]);
+
+          $result = $this->xxxService->create($request->all());
+
+          $notify[] = ['success', 'Created successfully'];
+          return redirect()->route('xxx.index')->withNotify($notify);
+      }
+
+      public function destroy($id)
+      {
+          $this->xxxService->delete($id);
+
+          if (request()->ajax()) {
+              return response()->json(['status' => 'success']);
+          }
+
+          $notify[] = ['success', 'Deleted successfully'];
+          return back()->withNotify($notify);
+      }
+  }
+
+══════════════════════════════════════════════════════════════
+  STANDARD WEB SERVICE TEMPLATE
+══════════════════════════════════════════════════════════════
+
+  <?php
+
+  namespace App\Services;
+
+  use App\Models\Xxx;
+  use Illuminate\Http\Request;
+
+  class XxxService
+  {
+      public function getAll(Request $request): array
+      {
+          $query = Xxx::query();
+
+          if ($request->has('search')) {
+              $query->where('name', 'LIKE', "%{$request->search}%");
+          }
+
+          $items = $query->latest()->paginate(getPaginate());
+
+          return [
+              'items' => $items,
+              'pageTitle' => 'Xxx List',
+          ];
+      }
+
+      public function getById($id): ?array
+      {
+          $item = Xxx::with(['user'])->find($id);
+          if (!$item) {
+              return null;
+          }
+
+          return [
+              'item' => $item,
+              'pageTitle' => $item->name,
+          ];
+      }
+
+      public function create(array $data)
+      {
+          return Xxx::create($data);
+      }
+
+      public function delete($id): void
+      {
+          $item = Xxx::findOrFail($id);
+          $item->delete();
+      }
+  }
+
+══════════════════════════════════════════════════════════════
+  KEY DIFFERENCES FROM ADMIN PATTERN
+══════════════════════════════════════════════════════════════
+
+  ┌───────────────────────────────────────┬──────────────────────────────────┐
+  │          ADMIN                        │          WEB (Frontend)          │
+  ├───────────────────────────────────────┼──────────────────────────────────┤
+  │ Uses FormRequest classes              │ Uses $request->validate() inline │
+  │ Uses Gate authorization               │ Uses auth()->user() checks      │
+  │ DataTables for list views             │ Pagination with getPaginate()   │
+  │ view('admin.*')                       │ view(activeTemplate().'*')       │
+  │ Redirect with ->with('success')       │ Redirect with ->withNotify()    │
+  │ Services in App\Services\Admin\       │ Services in App\Services\       │
+  └───────────────────────────────────────┴──────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  FRONTEND SERVICE CREATION PLAN (27 controllers → 17 services)
+══════════════════════════════════════════════════════════════
+
+  Total root files = 31. Breakdown:
+    - 27 action controllers (listed above)
+    - 1 base class (Controller.php)
+    - 1 MarketPlaceController → marketplace.txt
+    - 1 ApiAuthController → auth.txt
+    - 1 GoogleController → auth.txt
+
+  Current: 5 infrastructure services exist:
+    BunnyStreamService, BrevoMailService, CloudFlareService,
+    FirebaseService, ZeptoMailService (KEEP as-is)
+
+  Need to CREATE 17 domain services:
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  #  SERVICE                   CONTROLLERS              │
+  ├─────────────────────────────────────────────────────────┤
+  │  1  VideoService.php          VideoController,          │
+  │                               LikeController            │
+  │  2  ReelService.php           ReelController,            │
+  │                               ReelActionController       │
+  │  3  ChannelService.php        ChannelController          │
+  │  4  HomeService.php           HomeController             │
+  │  5  SearchService.php         SearchController           │
+  │  6  PlaylistService.php       PlaylistController         │
+  │  7  CommentService.php        CommentController,         │
+  │                               CommentModerationController│
+  │  8  SubscriptionService.php   SubscriptionController     │
+  │  9  StudioService.php         StudioController,          │
+  │                               StudioAnalyticsController  │
+  │ 10  MembershipService.php     MembershipController       │
+  │ 11  LiveStreamService.php     LiveStreamController       │
+  │ 12  ProfileService.php        ProfileController          │
+  │ 13  TicketService.php         TicketController           │
+  │ 14  PreviewService.php        PreviewController          │
+  │ 15  AnalyticsService.php      AnalyticsController,       │
+  │                               AnalyticsEventController   │
+  │ 16  UploadService.php         BunnyUploadController,     │
+  │                               DirectUploadController     │
+  │ 17  SiteService.php           SiteController             │
+  └─────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  GRAND SUMMARY (ALL MODULES COMBINED)                   │
+  ├─────────────────────────────────────────────────────────┤
+  │  Area            Controllers   Services Needed          │
+  ├─────────────────────────────────────────────────────────┤
+  │  Frontend       27             17 (domain services)     │
+  │  Admin          59             16 (grouped CRUD)        │
+  │  User           5              5                        │
+  │  Auth           12             4                         │
+  │  Marketplace    7              7                         │
+  │  Gateway        6              3                         │
+  │  API            3              3                         │
+  │  Infrastructure 5              (keep as-is)             │
+  ├─────────────────────────────────────────────────────────┤
+  │  TOTAL          109            55 new service files     │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  FRONTEND VIEW STRUCTURE (resources/views/templates/basic/)
+══════════════════════════════════════════════════════════════
+
+  Every frontend controller uses activeTemplate() for views:
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  CONTROLLER METHOD          │ activeTemplate() PATH     │
+  ├─────────────────────────────────────────────────────────┤
+  │  HomeController@index       │ basic.index               │
+  │  VideoController@show       │ basic.videos.show         │
+  │  VideoController@create     │ basic.videos.create       │
+  │  ReelController@index       │ basic.reels.index         │
+  │  ChannelController@show     │ basic.channels.show       │
+  │  PlaylistController@index   │ basic.playlists.index     │
+  │  SearchController@index     │ basic.search              │
+  │  StudioController@dashboard │ basic.studio.dashboard    │
+  │  LiveStreamController@show  │ basic.live.show           │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  ⚠  DO'S & DON'TS
+══════════════════════════════════════════════════════════════
+
+  ✅ DO's:
+  • Keep ALL existing root-level controllers exactly as they are.
+    DO NOT move them — routes depend on current locations.
+  • Apply the Web/ pattern ONLY for brand-new controllers.
+  • Use activeTemplate() for all frontend view paths.
+  • Use ->withNotify($notify) for flash messages.
+  • Use $request->validate() for inline validation.
+  • Use gs() helper for GeneralSetting access.
+  • Use getPaginate() for consistent pagination.
+
+  ❌ DON'Ts:
+  • DON'T move root controllers into Web/ folder — breaks routes.
+  • DON'T change existing routes in web.php.
+  • DON'T rename existing controller namespaces.
+  • DON'T modify the activeTemplate() helper or view paths.
+  • DON'T change the $notify pattern — used project-wide.
+  • DON'T remove existing helper functions.
+  • DON'T touch existing model scopes (forUser(), published()).
+  • DON'T change JSON response formats used by Flutter app.
+  • DON'T modify BunnyWebhookController, TusProxyController,
+    or CronController — they are infrastructure-only.

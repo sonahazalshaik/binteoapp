@@ -1,0 +1,318 @@
+╔══════════════════════════════════════════════════════════════╗
+║         ProcessPayment - Payment Gateway Logic              ║
+║           Shared by Web + API controllers                   ║
+╚══════════════════════════════════════════════════════════════╝
+
+PURPOSE:
+  Handles payment processing through multiple gateways
+  (Razorpay, Wallet, COD). Used by both Web and API.
+
+╔══════════════════════════════════════════════════════════════╗
+║  ⚠  DO'S & DON'TS                                          ║
+║  This is a REFERENCE for new payment features. Existing     ║
+║  payment logic (Razorpay in Gateway/, Video purchase in     ║
+║  VideoController, deposit in PaymentController) remains.    ║
+╚══════════════════════════════════════════════════════════════╝
+
+  ✅ DO's:
+  • Use for NEW payment flows (new marketplace, new subscription).
+  • Keep gateway-specific logic in dedicated methods.
+  • Use DB::transaction for all payment operations.
+  • Log payment failures via Log::error().
+
+  ❌ DON'Ts:
+  • DON'T modify existing Gateway controllers (app/Http/Controllers/Gateway/).
+  • DON'T change the existing Razorpay payment flow in
+    VideoController::purchase or OttPlanController.
+  • DON'T alter existing Deposit/Withdrawal model logic.
+  • DON'T remove existing Gateway models or migration data.
+
+METHODS:
+  ┌─────────────────────────────────────────────────────────┐
+  │ processPayment(User, $order, $amount, $method, $id): array│
+  │ verifyPayment($paymentId, $gateway): array              │
+  │ refundPayment($order, $amount): array                   │
+  │ getAvailableGateways(): Collection                      │
+  │ processWalletPayment(User, $order, $amount): array     │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  PHP SERVICE (app/Services/ProcessPaymentService.php)
+══════════════════════════════════════════════════════════════
+
+<?php
+
+namespace App\Services;
+
+use App\Constants\Status;
+use App\Models\Order;
+use App\Models\User;
+use App\Models\Transaction;
+use App\Models\Gateway;
+use App\Models\GatewayCurrency;
+use App\Models\Deposit;
+use App\Models\AdminNotification;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+
+class ProcessPaymentService
+{
+    /**
+     * Process a payment for an order.
+     *
+     * Flow:
+     *   1. Validate payment method is available
+     *   2. Route to specific gateway handler
+     *   3. Capture or verify payment
+     *   4. Log transaction
+     *   5. Return result
+     *
+     * @param User $user
+     * @param Order $order
+     * @param float $amount
+     * @param string $method  'razorpay'|'wallet'|'cod'
+     * @param string|null $paymentId  External gateway transaction ID
+     * @return array {success: bool, transaction_id?: string, message: string}
+     */
+    public function processPayment(
+        User $user,
+        Order $order,
+        float $amount,
+        string $method,
+        ?string $paymentId = null
+    ): array {
+        return DB::transaction(function () use ($user, $order, $amount, $method, $paymentId) {
+            switch ($method) {
+                case 'wallet':
+                    return $this->processWalletPayment($user, $order, $amount);
+
+                case 'razorpay':
+                    return $this->processRazorpayPayment($order, $amount, $paymentId);
+
+                case 'cod':
+                    return $this->processCodPayment($order, $amount);
+
+                default:
+                    // Try dynamic gateway
+                    $gateway = Gateway::where('alias', $method)->where('status', Status::ENABLE)->first();
+                    if ($gateway) {
+                        return $this->processGatewayPayment($user, $order, $amount, $gateway, $paymentId);
+                    }
+
+                    return [
+                        'success' => false,
+                        'message' => "Unsupported payment method: {$method}",
+                    ];
+            }
+        });
+    }
+
+    /**
+     * Process wallet payment — deduct from user balance.
+     */
+    protected function processWalletPayment(User $user, Order $order, float $amount): array
+    {
+        if ($user->balance < $amount) {
+            return [
+                'success' => false,
+                'message' => 'Insufficient wallet balance. Required: ' . $amount . ', Available: ' . $user->balance,
+            ];
+        }
+
+        $user->decrement('balance', $amount);
+
+        Transaction::create([
+            'user_id' => $user->id,
+            'order_id' => $order->id,
+            'amount' => $amount,
+            'post_balance' => $user->balance,
+            'charge' => 0,
+            'trx_type' => '-',
+            'details' => 'Wallet payment for order #' . $order->order_number,
+            'trx' => getTrx(),
+            'remark' => 'wallet_payment',
+        ]);
+
+        return [
+            'success' => true,
+            'transaction_id' => 'WALLET-' . $order->order_number,
+            'message' => 'Payment successful via wallet',
+        ];
+    }
+
+    /**
+     * Process Razorpay payment — verify the payment ID.
+     */
+    protected function processRazorpayPayment(Order $order, float $amount, ?string $paymentId): array
+    {
+        if (!$paymentId) {
+            return [
+                'success' => false,
+                'message' => 'Missing Razorpay payment ID',
+            ];
+        }
+
+        // Verify with Razorpay API (simplified)
+        try {
+            $verification = $this->verifyPayment($paymentId, 'razorpay');
+            if (!$verification['verified']) {
+                Log::warning('Razorpay payment verification failed', [
+                    'order_id' => $order->id,
+                    'payment_id' => $paymentId,
+                    'reason' => $verification['message'] ?? 'Unknown',
+                ]);
+                return [
+                    'success' => false,
+                    'message' => 'Payment verification failed',
+                ];
+            }
+
+            return [
+                'success' => true,
+                'transaction_id' => $paymentId,
+                'message' => 'Payment verified successfully',
+            ];
+        } catch (\Exception $e) {
+            Log::error('Razorpay exception: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Payment gateway error: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Process Cash on Delivery — mark as pending payment.
+     */
+    protected function processCodPayment(Order $order, float $amount): array
+    {
+        return [
+            'success' => true,
+            'transaction_id' => 'COD-' . $order->order_number,
+            'message' => 'Order placed with Cash on Delivery',
+        ];
+    }
+
+    /**
+     * Process payment through a dynamic gateway.
+     */
+    protected function processGatewayPayment(User $user, Order $order, float $amount, Gateway $gateway, ?string $paymentId): array
+    {
+        // Create deposit record
+        $deposit = Deposit::create([
+            'user_id' => $user->id,
+            'order_id' => $order->id,
+            'gateway_id' => $gateway->id,
+            'amount' => $amount,
+            'charge' => 0,
+            'final_amount' => $amount,
+            'status' => Status::PAYMENT_PENDING,
+            'trx' => $paymentId ?? getTrx(),
+        ]);
+
+        return [
+            'success' => true,
+            'deposit' => $deposit,
+            'transaction_id' => $deposit->trx,
+            'message' => 'Payment initiated via ' . $gateway->name,
+        ];
+    }
+
+    /**
+     * Verify a payment with an external gateway.
+     *
+     * @param string $paymentId  Gateway transaction ID
+     * @param string $gateway    'razorpay'|'stripe'|etc.
+     * @return array {verified: bool, message?: string, data?: array}
+     */
+    public function verifyPayment(string $paymentId, string $gateway): array
+    {
+        switch ($gateway) {
+            case 'razorpay':
+                return $this->verifyRazorpayPayment($paymentId);
+            case 'stripe':
+                return $this->verifyStripePayment($paymentId);
+            default:
+                return ['verified' => true]; // Assume verified for unknown gateways
+        }
+    }
+
+    /**
+     * Verify a Razorpay payment ID.
+     */
+    protected function verifyRazorpayPayment(string $paymentId): array
+    {
+        // In production, call Razorpay API:
+        // $razorpay = new \Razorpay\Api\Api(key, secret);
+        // $payment = $razorpay->payment->fetch($paymentId);
+        // return ['verified' => $payment->status === 'captured'];
+
+        // Simplified check — assume verified if ID format matches
+        if (str_starts_with($paymentId, 'pay_')) {
+            return ['verified' => true];
+        }
+
+        return ['verified' => false, 'message' => 'Invalid payment ID format'];
+    }
+
+    /**
+     * Verify a Stripe payment.
+     */
+    protected function verifyStripePayment(string $paymentId): array
+    {
+        // \Stripe\Stripe::setApiKey(config('stripe.secret'));
+        // $payment = \Stripe\PaymentIntent::retrieve($paymentId);
+        // return ['verified' => $payment->status === 'succeeded'];
+
+        return ['verified' => true]; // Placeholder
+    }
+
+    /**
+     * Process a refund for an order.
+     */
+    public function refundPayment(Order $order, ?float $amount = null): array
+    {
+        $refundAmount = $amount ?? $order->total_amount;
+
+        return DB::transaction(function () use ($order, $refundAmount) {
+            $user = $order->user;
+
+            // Credit refund to wallet
+            $user->increment('balance', $refundAmount);
+
+            Transaction::create([
+                'user_id' => $user->id,
+                'order_id' => $order->id,
+                'amount' => $refundAmount,
+                'post_balance' => $user->balance,
+                'charge' => 0,
+                'trx_type' => '+',
+                'details' => 'Refund for order #' . $order->order_number,
+                'trx' => getTrx(),
+                'remark' => 'order_refund',
+            ]);
+
+            AdminNotification::create([
+                'user_id' => $user->id,
+                'title' => 'Refund processed for order #' . $order->order_number,
+                'click_url' => route('admin.orders.show', $order->id),
+            ]);
+
+            return [
+                'success' => true,
+                'refund_amount' => $refundAmount,
+                'message' => 'Refund processed successfully',
+            ];
+        });
+    }
+
+    /**
+     * Get all available payment gateways.
+     */
+    public function getAvailableGateways()
+    {
+        return Gateway::where('status', Status::ENABLE)
+            ->with('currencies')
+            ->get();
+    }
+}

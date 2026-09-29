@@ -1,0 +1,307 @@
+╔══════════════════════════════════════════════════════════════╗
+║           StoreOrder - Order Processing Logic               ║
+║           Shared by Web + API controllers                   ║
+╚══════════════════════════════════════════════════════════════╝
+
+PURPOSE:
+  Handles creation, validation, and management of orders.
+  Used by both Web controllers (Bootstrap 5) and API controllers (Flutter).
+
+╔══════════════════════════════════════════════════════════════╗
+║  ⚠  DO'S & DON'TS                                          ║
+║  This file is for REFERENCE only — it does not affect your  ║
+║  existing codebase. Your current order/payment/tax logic    ║
+║  inside existing controllers (VideoController::purchase,    ║
+║  PaymentController, etc.) will continue working as-is.      ║
+╚══════════════════════════════════════════════════════════════╝
+
+  ✅ DO's:
+  • Use these services for NEW features only (e.g., a new
+    product marketplace, new subscription tier, etc.).
+  • Call services from controllers: $this->orderService->createOrder(...)
+  • Let services handle DB transactions (DB::transaction).
+  • Return structured arrays from services (success, data, message).
+
+  ❌ DON'Ts:
+  • DON'T replace existing purchase logic in VideoController.php
+    with calls to StoreOrderService — existing code works.
+  • DON'T modify existing Transaction, Deposit, or Order models
+    unless you're adding new features.
+  • DON'T remove existing helper functions (getTrx(), gs(),
+    fileUploader(), etc.) — they are the project standard.
+  • DON'T break existing routes by changing controller namespaces.
+  • DON'T assume the project has Order/OrderItem models — if they
+    don't exist yet, create them only for new features.
+
+METHODS:
+  ┌─────────────────────────────────────────────────────────┐
+  │ createOrder(User $user, array $data): Order             │
+  │ getOrderById($id): ?Order                              │
+  │ getUserOrders(User $user, Request $request): LengthAwarePaginator │
+  │ cancelOrder(Order $order): bool                        │
+  │ getOrderStatuses(): array                              │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  PHP SERVICE (app/Services/StoreOrderService.php)
+══════════════════════════════════════════════════════════════
+
+<?php
+
+namespace App\Services;
+
+use App\Constants\Status;
+use App\Models\Order;
+use App\Models\OrderItem;
+use App\Models\Product;
+use App\Models\Transaction;
+use App\Models\AdminNotification;
+use App\Models\User;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+
+class StoreOrderService
+{
+    protected CalculateTaxService $taxService;
+    protected ProcessPaymentService $paymentService;
+
+    public function __construct(
+        CalculateTaxService $taxService,
+        ProcessPaymentService $paymentService
+    ) {
+        $this->taxService = $taxService;
+        $this->paymentService = $paymentService;
+    }
+
+    /**
+     * Create a new order with validation, tax calculation, and payment processing.
+     *
+     * Flow:
+     *   1. Validate items (stock check, pricing)
+     *   2. Calculate subtotal + tax
+     *   3. Create Order record (pending status)
+     *   4. Create OrderItem records
+     *   5. Deduct stock
+     *   6. Process payment (via ProcessPaymentService)
+     *   7. Update order status based on payment result
+     *   8. Create transaction log
+     *   9. Send notifications
+     *
+     * @param User $user  The authenticated user placing the order
+     * @param array $data {
+     *     @type array  $items        [{product_id, quantity, price}]
+     *     @type string $payment_method  'razorpay'|'wallet'|'cod'
+     *     @type string $payment_id      Transaction ID from gateway
+     *     @type array  $shipping_address {line1, city, state, zip, country}
+     *     @type array  $billing_address  {line1, city, state, zip, country}
+     *     @type string $coupon_code     Optional coupon
+     * }
+     * @return array {success: bool, order: ?Order, message: string, errors?: array}
+     */
+    public function createOrder(User $user, array $data): array
+    {
+        return DB::transaction(function () use ($user, $data) {
+            // ── 1. Validate Items ──
+            $items = $data['items'] ?? [];
+            if (empty($items)) {
+                return [
+                    'success' => false,
+                    'order' => null,
+                    'message' => 'Cart is empty',
+                    'errors' => ['items' => 'No items to order'],
+                ];
+            }
+
+            $validatedItems = [];
+            $subtotal = 0;
+
+            foreach ($items as $item) {
+                $product = Product::find($item['product_id']);
+                if (!$product || $product->stock < ($item['quantity'] ?? 1)) {
+                    return [
+                        'success' => false,
+                        'order' => null,
+                        'message' => "Insufficient stock for product #{$item['product_id']}",
+                    ];
+                }
+
+                $validatedItems[] = [
+                    'product' => $product,
+                    'quantity' => $item['quantity'],
+                    'unit_price' => $product->price,
+                    'total' => $product->price * $item['quantity'],
+                ];
+                $subtotal += $product->price * $item['quantity'];
+            }
+
+            // ── 2. Calculate Tax ──
+            $taxData = $this->taxService->calculateTax($subtotal, [
+                'country' => $data['shipping_address']['country'] ?? 'US',
+                'state' => $data['shipping_address']['state'] ?? '',
+            ]);
+
+            $totalAmount = $subtotal + $taxData['total_tax'];
+
+            // ── 3. Create Order ──
+            $order = Order::create([
+                'user_id' => $user->id,
+                'order_number' => $this->generateOrderNumber(),
+                'subtotal' => $subtotal,
+                'tax_amount' => $taxData['total_tax'],
+                'total_amount' => $totalAmount,
+                'tax_breakdown' => $taxData,
+                'status' => Status::PAYMENT_INITIATE,
+                'payment_method' => $data['payment_method'] ?? 'cod',
+                'payment_id' => $data['payment_id'] ?? null,
+                'shipping_address' => $data['shipping_address'] ?? null,
+                'billing_address' => $data['billing_address'] ?? null,
+                'coupon_code' => $data['coupon_code'] ?? null,
+                'currency' => gs('cur_text') ?? 'USD',
+            ]);
+
+            // ── 4. Create Order Items ──
+            foreach ($validatedItems as $vi) {
+                OrderItem::create([
+                    'order_id' => $order->id,
+                    'product_id' => $vi['product']->id,
+                    'product_name' => $vi['product']->name,
+                    'quantity' => $vi['quantity'],
+                    'unit_price' => $vi['unit_price'],
+                    'total_price' => $vi['total'],
+                ]);
+
+                // ── 5. Deduct Stock ──
+                $vi['product']->decrement('stock', $vi['quantity']);
+            }
+
+            // ── 6. Process Payment ──
+            if ($data['payment_method'] !== 'cod') {
+                $paymentResult = $this->paymentService->processPayment(
+                    $user,
+                    $order,
+                    $totalAmount,
+                    $data['payment_method'],
+                    $data['payment_id'] ?? null
+                );
+
+                if (!$paymentResult['success']) {
+                    $order->update([
+                        'status' => Status::PAYMENT_REJECT,
+                        'notes' => 'Payment failed: ' . $paymentResult['message'],
+                    ]);
+                    return [
+                        'success' => false,
+                        'order' => $order,
+                        'message' => $paymentResult['message'],
+                    ];
+                }
+
+                $order->update([
+                    'status' => Status::PAYMENT_SUCCESS,
+                    'payment_id' => $paymentResult['transaction_id'],
+                ]);
+            }
+
+            // ── 7. Transaction Log ──
+            Transaction::create([
+                'user_id' => $user->id,
+                'order_id' => $order->id,
+                'amount' => $totalAmount,
+                'post_balance' => $user->balance,
+                'charge' => 0,
+                'trx_type' => '-',
+                'details' => 'Order placed: #' . $order->order_number,
+                'trx' => $data['payment_id'] ?? getTrx(),
+                'remark' => 'order_placed',
+            ]);
+
+            // ── 8. Admin Notification ──
+            AdminNotification::create([
+                'user_id' => $user->id,
+                'title' => 'New order placed: #' . $order->order_number,
+                'click_url' => route('admin.orders.show', $order->id),
+            ]);
+
+            return [
+                'success' => true,
+                'order' => $order->load('items'),
+                'message' => 'Order placed successfully',
+            ];
+        });
+    }
+
+    /**
+     * Get a single order with all relations.
+     */
+    public function getOrderById($id): ?Order
+    {
+        return Order::with(['items.product', 'user', 'transactions'])
+            ->find($id);
+    }
+
+    /**
+     * Get paginated orders for a specific user.
+     */
+    public function getUserOrders(User $user, Request $request)
+    {
+        $query = Order::where('user_id', $user->id);
+
+        if ($request->has('status')) {
+            $query->where('status', $request->status);
+        }
+
+        return $query->latest()->paginate(getPaginate(15));
+    }
+
+    /**
+     * Cancel an order (only if still in pending/initiate status).
+     */
+    public function cancelOrder(Order $order): array
+    {
+        if (!in_array($order->status, [Status::PAYMENT_INITIATE, Status::PAYMENT_PENDING])) {
+            return [
+                'success' => false,
+                'message' => 'Order cannot be cancelled at current status',
+            ];
+        }
+
+        DB::transaction(function () use ($order) {
+            $order->update(['status' => Status::PAYMENT_REJECT]);
+
+            // Restore stock
+            foreach ($order->items as $item) {
+                Product::where('id', $item->product_id)
+                    ->increment('stock', $item->quantity);
+            }
+        });
+
+        return [
+            'success' => true,
+            'message' => 'Order cancelled successfully',
+        ];
+    }
+
+    /**
+     * Generate a unique order number.
+     */
+    protected function generateOrderNumber(): string
+    {
+        return 'ORD-' . strtoupper(Str::random(8)) . '-' . time();
+    }
+
+    /**
+     * Get all possible order statuses for dropdowns.
+     */
+    public function getOrderStatuses(): array
+    {
+        return [
+            Status::PAYMENT_INITIATE => 'Pending',
+            Status::PAYMENT_SUCCESS => 'Completed',
+            Status::PAYMENT_PENDING => 'Processing',
+            Status::PAYMENT_REJECT => 'Failed',
+        ];
+    }
+}

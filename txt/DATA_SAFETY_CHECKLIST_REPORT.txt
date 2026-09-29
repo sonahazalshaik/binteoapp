@@ -1,0 +1,120 @@
+================================================================================
+        APP DATA COLLECTION - COMPLIANCE CHECKLIST REPORT
+        (For Play Store Data Safety form / Privacy review)
+================================================================================
+Date   : August 22, 2026
+Scope  : Full codebase audit of what our platform ACTUALLY collects today
+
+--------------------------------------------------------------------------------
+Q1. Signup lo name + email + phone number collect chestunnara?
+--------------------------------------------------------------------------------
+ANSWER: YES - ALL THREE ARE COLLECTED AND REQUIRED
+  * First name + Last name      (required)
+  * Email                       (required, verified)
+  * Mobile/Phone number         (required - Indian format validated)
+  * Also collected at signup  : Country name (required), Password
+  * Also tracked silently     : Traffic source / UTM parameters
+                                (utm_source, utm_medium, utm_campaign)
+  Code: app\Http\Controllers\Auth\RegisteredUserController.php (lines 60-96)
+
+--------------------------------------------------------------------------------
+Q2. Date of birth / age collect chestunnara?
+--------------------------------------------------------------------------------
+ANSWER: NO AT SIGNUP - ONLY IN KYC VERIFICATION (OPTIONAL FLOW)
+  * Registration form does NOT ask date of birth or age.
+  * DOB is collected ONLY inside KYC (identity verification) submissions,
+    along with ID type/number/address.
+  * NOTE: There is NO age gate at registration. If the app will be rated
+    for mature audiences (reels have an age-restriction feature already),
+    consider adding a DOB/age confirmation at signup.
+  Code: app\Http\Controllers\User\UserController.php (KYC, line 147)
+
+--------------------------------------------------------------------------------
+Q3. App location / GPS collect chestunda?
+--------------------------------------------------------------------------------
+ANSWER: NO GPS / NO LOCATION TRACKING
+  * No geolocation API usage found anywhere in the codebase.
+  * No latitude/longitude captured or stored.
+  * Only the country NAME is taken (user manually selects it at signup).
+  * Bunny CDN may infer approximate region from IP for content delivery -
+    that is server-side, not app location collection.
+
+--------------------------------------------------------------------------------
+Q4. IP address + device info + crash/log data collect chestunnara?
+--------------------------------------------------------------------------------
+ANSWER: YES - IP AND DEVICE INFO ARE COLLECTED (IMPORTANT FOR DATA SAFETY FORM)
+  * IP address          -> stored in visitor logs, view tracking,
+                           activity logs, performance monitoring
+  * Device info         -> browser User-Agent stored (VisitorLog table:
+                           ip_address, user_agent, session_id);
+                           device type (mobile/tablet/desktop) saved with
+                           each FCM notification token
+  * Crash/log data      -> NO crash reporting SDK (no Crashlytics etc.).
+                           Only standard server-side error logging.
+  Code: app\Http\Middleware\VisitorLogMiddleware.php,
+        app\Http\Middleware\LogSystemPerformance.php
+
+--------------------------------------------------------------------------------
+Q5. Firebase / FCM notifications use chestunnara?
+--------------------------------------------------------------------------------
+ANSWER: YES
+  * Firebase Cloud Messaging is loaded on every page.
+  * Push notifications are sent for: new uploads to subscribers,
+    processing-complete alerts, general notifications.
+  * FCM device tokens are stored per user with device_type.
+  Code: resources\views\partials\firebase_script.blade.php
+
+--------------------------------------------------------------------------------
+Q6. Google Analytics / any analytics SDK use chestunnara?
+--------------------------------------------------------------------------------
+ANSWER: NO - NOT ACTIVE
+  * A Google Analytics measurementId value exists in Firebase settings,
+    but the Analytics SDK/library is NEVER loaded and no analytics calls
+    are made (only Firebase App + Messaging scripts are included).
+  * No gtag.js, GTM, Mixpanel, Amplitude, or other trackers found.
+  * Internal statistics (views, likes) are first-party database records,
+    not third-party analytics.
+
+--------------------------------------------------------------------------------
+Q7. Videos/reels/comments public ga other users ki visible avutaaya?
+--------------------------------------------------------------------------------
+ANSWER: YES - PUBLIC CONTENT
+  * Reels feed (/reels) and individual reels are viewable WITHOUT login
+    (no auth middleware on those routes).
+  * Comments and like counts are publicly visible on every reel/video.
+  * Uploads, commenting, liking require login - viewing does not.
+
+--------------------------------------------------------------------------------
+Q8. Account Delete option app lo already working aa?
+--------------------------------------------------------------------------------
+ANSWER: BACKEND EXISTS - BUT USERS CANNOT SEE OR USE IT  *** ACTION NEEDED ***
+  * The deletion route + logic exist: DELETE /profile permanently removes
+    the user account (ProfileService::destroy).
+  * HOWEVER: there is NO "Delete Account" button/link anywhere in the UI -
+    users have no way to reach this function.
+  * WHY THIS MATTERS: Google Play REJECTS apps that offer account creation
+    without an in-app account deletion option (Policy requirement).
+  * FIX REQUIRED: Add a "Delete Account" option in profile/settings page
+    connected to the existing backend. (Developer task - small effort)
+
+================================================================================
+SUMMARY TABLE
+================================================================================
+  #  Item                              Status
+  -- --------------------------------  ------------------------------------
+  1  Name + Email + Phone at signup    YES (all required)
+  2  Date of birth / age               NO at signup (KYC only, optional)
+  3  Location / GPS                    NO
+  4  IP + device info                  YES (stored in logs)
+  4b Crash data                        NO (no crash SDK)
+  5  Firebase / FCM push               YES
+  6  Google Analytics / other SDKs     NO (not active)
+  7  Public videos/reels/comments      YES (viewable without login)
+  8  Account delete option             BACKEND ONLY - UI MISSING (fix needed)
+
+ACTION ITEMS BEFORE PLAY STORE SUBMISSION:
+  1. Add visible "Delete Account" option in settings (MANDATORY).
+  2. Prepare Privacy Policy matching items 1, 4, 5, 7 above.
+  3. Decide if age gate is needed at signup (content has age-restricted
+     reels feature already).
+================================================================================

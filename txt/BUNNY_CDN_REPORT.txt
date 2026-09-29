@@ -1,0 +1,134 @@
+================================================================================
+          BUNNY VIDEO CDN - WHAT WE NEED TO DO (SIMPLE REPORT)
+================================================================================
+Date    : August 22, 2026
+About   : Our video hosting service (Bunny Stream) - used for Reels & Videos
+
+
+================================================================================
+PART 1 - THE BOTTOM LINE (READ THIS FIRST)
+================================================================================
+
+WE NEED ONLY 2 THINGS:
+
+  ACTION 1 - ACTIVATE OUR BUNNY ACCOUNT (ADD PAYMENT METHOD)
+  ----------------------------------------------------------
+  * There is NO expensive plan to buy. Bunny charges only for what we use.
+  * Minimum cost is just $1/month + our actual usage.
+  * At our current size, the total bill will be around $6-7 per month.
+  * This one step FIXES the biggest problem: video processing speed.
+
+
+  ACTION 2 - LET US CHANGE 2 SETTINGS ON THE DASHBOARD (FREE, TAKES 5 MINUTES)
+  ----------------------------------------------------------------------------
+  Setting A: Stop saving quality versions we don't need
+             (saves more than half of our storage)
+  Setting B: Stop keeping the original uploaded file
+             (every upload currently saves its copy TWICE)
+
+
+WHY THESE 2 ACTIONS MATTER - OUR 3 CURRENT PROBLEMS:
+
+  PROBLEM 1: Videos process ONE AT A TIME, VERY SLOWLY.
+             Client uploads 5 reels -> reel 2 waits until reel 1 finishes,
+             then reel 3 waits... everyone keeps seeing "Processing".
+             >>> FIXED BY ACTION 1 (paid accounts process many at once)
+
+  PROBLEM 2: Storage fills up ~5x FASTER than expected.
+             Example: uploading a 1.6 GB video actually stores ~8-10 GB!
+             Why? Explained simply in PART 3 below.
+             >>> REDUCED BY ACTION 2 (settings change)
+
+  PROBLEM 3: Old reel videos disappeared from Bunny's servers.
+             Result: broken videos on our app (we already cleaned this up).
+             Cause: free trial accounts have no protection guarantee.
+             >>> PREVENTED BY ACTION 1 (real account = real guarantees)
+
+
+================================================================================
+PART 2 - COST: WHAT WILL WE ACTUALLY PAY?
+================================================================================
+
+HOW BUNNY CHARGES (official prices from bunny.net):
+
+  Account activation ........ $1/month minimum (that's it - no plan needed)
+  Storage ................... $0.01 per GB per month
+                               (100 GB stored = $1.00/month)
+  Video viewing (delivery) .. about $0.01 per GB watched
+                               (500 GB watched = $5.00/month)
+  Video processing .......... FREE (already included, up to 1080p quality)
+
+REALISTIC MONTHLY BILL FOR US:
+
+  Now / small stage:
+     100 GB stored + 500 GB viewed per month = approx $6-7 TOTAL
+
+  Growing stage (later):
+     1000 GB stored + 5000 GB viewed per month = approx $60 TOTAL
+
+  IMPORTANT: Processing/transcoding stays FREE even on the paid account.
+  We are NOT paying for anything extra - we are unlocking full speed.
+
+
+================================================================================
+PART 3 - WHY DOES A 1.6 GB VIDEO BECOME 8-10 GB? (SIMPLE EXPLANATION)
+================================================================================
+
+When we upload a video, Bunny does not save just that one file. Like YouTube,
+it automatically creates SEPARAL COPIES in different qualities:
+
+   Original file kept           -> 1.60 GB   (a setting currently ON)
+   Copy in 1080p (Full HD)      -> 1.50 GB
+   Copy in 720p (HD)            -> 0.80 GB
+   Copy in 480p                 -> 0.40 GB
+   Copy in 360p                 -> 0.25 GB
+   Copy in 240p                 -> 0.15 GB
+   Small streaming pieces       -> 0.30 GB
+   ---------------------------------------
+   TOTAL STORED:                ~5.00 GB  (and can reach 8-10 GB)
+
+WHY SO MANY COPIES? Because viewers have different internet speeds:
+   - Fast Wi-Fi viewer        -> watches the sharp 1080p copy
+   - Weak mobile data viewer  -> automatically gets smooth 360p copy
+This auto-switching is exactly how YouTube works - it needs the copies.
+So we should NOT delete all of them; we just remove the ones nobody uses
+(like 1080p+ on short vertical reels), which cuts storage by 50%+.
+
+
+================================================================================
+PART 4 - COMMON QUESTIONS
+================================================================================
+
+Q: If our storage passes 50 GB, will old videos be deleted?
+A: NO. Bunny never deletes videos automatically. We simply pay for what
+   we store (55 GB = about $0.55/month). Videos are only ever lost if the
+   account stays unpaid for a long time - which is exactly what risked
+   happening to us on the free trial.
+
+Q: Is Bunny expensive compared to others?
+A: No - it is one of the CHEAPEST options available. Traditional cloud
+   video services charge $0.02+/minute just for processing. Bunny does
+   processing free and charges pennies for storage/viewing.
+
+Q: Do we need to buy a bigger "plan" when we grow?
+A: No plans exist and none are needed. Everything scales automatically -
+   the bill simply reflects our real usage each month.
+
+Q: What happens if we do nothing?
+A: Videos keep processing slowly one-by-one, storage waste continues,
+   and content remains at risk because trial accounts carry no guarantees.
+
+
+================================================================================
+PART 5 - DECISION REQUESTED
+================================================================================
+
+  [ ] APPROVE: Activate the Bunny Stream account with a payment method
+      (cost: $1/month minimum + usage, approx $6-7/month at current scale)
+
+  [ ] APPROVE: Allow the 2 free dashboard setting changes
+      (done by our developer, 5 minutes, no cost)
+
+Prepared by: Development Team
+Sources: bunny.net/pricing/stream and docs.bunny.net (checked August 2026)
+================================================================================

@@ -1,0 +1,2958 @@
+# NEW-YOUTUBE — COMPLETE PLATFORM DOCUMENTATION
+Full step-by-step narrative of all frontend views, features, and modules for the Binteo social video platform.
+
+---
+
+## TABLE OF CONTENTS
+
+**PART 1 — PUBLIC BROWSING & DISCOVERY**
+- Step 1: Homepage (index.blade.php)
+- Step 2: Trending Page
+- Step 3: Category Videos
+- Step 4: Search Page
+- Step 5: Embed Video Page
+- Step 6: OTT Streaming Page
+- Step 7: Premium / Premium Trending / Premium Videos Pages
+- Step 8: Stock Videos Page
+- Step 9: Static Pages (Settings, Help, Policy, Cookie, Pages)
+- Step 10: Maintenance & Update Required Pages
+
+**PART 2 — VIDEO EXPERIENCE**
+- Step 1: Video Show Page (Player + Comments)
+- Step 2: Video Create Page
+- Step 3: Video History
+- Step 4: Liked Videos
+- Step 5: Watch Later
+
+**PART 3 — REELS (SHORT-FORM VIDEOS)**
+- Step 1: Reels Index (TikTok-style feed)
+- Step 2: Reel Show
+- Step 3: Reel Create
+- Step 4: Reel Audio Library
+
+**PART 4 — CHANNELS**
+- Step 1: Channel Show (Public Profile)
+- Step 2: Channel Create
+
+**PART 5 — PLAYLISTS**
+- Step 1: Playlists Index
+- Step 2: Playlist Show (Player + Queue)
+
+**PART 6 — LIVE STREAMING**
+- Step 1: Live Show Page
+
+**PART 7 — STUDIO (CREATOR DASHBOARD)**
+- Step 1: Studio Dashboard (Performance Overview)
+- Step 2: Studio Videos (Content Manager)
+- Step 3: Studio Edit (Video Metadata Editor)
+- Step 4: Studio Analytics (Charts & Metrics)
+- Step 5: Studio Monetization
+- Step 6: Studio Reels Manager
+- Step 7: Studio Reel Edit
+- Step 8: Studio Duets Manager
+- Step 9: Studio Saved Audios
+- Step 10: Studio Purchased Videos
+
+**PART 8 — CLIENT DASHBOARD (USER AREA)**
+- Step 1: Wallet / Financial Hub
+- Step 2: Transactions Ledger
+- Step 3: Earnings & Revenue
+- Step 4: Notifications
+- Step 5: Watch Later (Client)
+- Step 6: Deposit History
+- Step 7: Account Security
+- Step 8: Support Tickets
+- Step 9: Plans & Subscriptions (Client)
+- Step 10: Playlists (Sell / Purchased)
+- Step 11: Videos (Create / Purchased)
+- Step 12: Withdrawals
+- Step 13: KYC Verification
+- Step 14: Monetization Settings
+- Step 15: Client Channel Create
+- Step 16: Client Studio
+- Step 17: OTT Plans
+- Step 18: Ad Settings
+- Step 19: Advertiser Dashboard & Campaigns
+
+**PART 9 — MARKETPLACE (CREATOR NETWORK)**
+- Step 1: Marketplace Home
+- Step 2: Creator Dashboard
+- Step 3: All Profiles (AJAX Filtering)
+- Step 4: Featured & Gallery Pages
+- Step 5: Public Creator Portfolio
+- Step 6: Preview / Login / Register
+- Step 7: Terms Page
+
+**PART 10 — PAYMENTS & PLANS**
+- Step 1: Deposit Gateway Selection
+- Step 2: Razorpay Checkout
+- Step 3: Plans Index
+- Step 4: Plan Sell History
+- Step 5: Purchased Plans (OTT + Creator)
+- Step 6: Plan Invoice
+- Step 7: Profile Edit
+
+**PART 11 — PARTIALS & REUSABLE COMPONENTS**
+- Step 1: Video Card (Grid)
+- Step 2: Video Card List (Horizontal)
+- Step 3: Related Videos
+- Step 4: Comment Item
+- Step 5: Banner Carousel
+- Step 6: Channel Card Small
+- Step 7: Creator Card Small
+- Step 8: Playlist Item & Player Panel
+- Step 9: Reel Card
+- Step 10: Studio Sidebar
+
+---
+
+# PART 1 — PUBLIC BROWSING & DISCOVERY
+What visitors and logged-in users see when browsing the platform's content.
+
+## STEP 1 The Homepage (index.blade.php)
+**Route:** `GET /` → Homepage controller
+**Layout:** `<x-app-layout>` (Tailwind + Alpine.js based)
+
+**Controller Logic Flow:**
+
+1. **Route** → `routes/web.php:30` — `Route::get('/', [HomeController::class, 'index'])->name('home');`
+
+2. **Controller** → `HomeController@index` (file: `app/Http/Controllers/Web/HomeController.php`, line 19-23):
+   - Laravel's DI injects `HomeService` into the constructor automatically
+   - `$this->homeService->getHomepageData($request)` is called, passing the raw request
+   - The returned array is spread into `view('frontend.index', $data)`
+
+3. **Service** → `HomeService::getHomepageData()` (file: `app/Services/Frontend/HomeService.php`, line 15-73):
+   - This method runs 12+ independent queries to assemble the entire page payload:
+   
+   a) **Main Video Feed** (line 17-25): `Video::forUser()->where('is_premium', 0)->with(['user.channel', 'reports'])->inRandomOrder()->paginate(12)`. The `forUser()` scope filters: public + published + ready for guests; also includes user's own private/draft when logged in. The `is_premium = 0` ensures only free videos. If `?category=` param exists, filters by category slug.
+   
+   b) **Trending Videos** (line 27-37): Same scope + orders by `is_trending DESC`, then by a subquery counting view_logs in last 24hr (`daily_views`), then by total `views_count DESC`. Takes 20, shuffles, returns 12.
+   
+   c) **Featured Videos** (line 39-43): `where('is_featured', true)->latest()->take(12)`
+   
+   d) **Featured Channels** (line 45-50): `Channel::where('is_featured', 1)->with('user')->orderBy('is_trending', 'desc')->latest()->take(12)`
+   
+   e) **Reels** (line 52-56): `Reel::forUser()->with(['user.channel', 'reports'])->where('visibility', Status::PUBLIC)->latest()->take(12)`
+   
+   f) **Marketplace Profiles** (line 58-60): Three queries filtering `MarketPlace` by `type` (actor/influencer/investor) with `status = 1` and `is_featured = 1`, random order, take 10 each.
+   
+   g) **Banner Ads** (line 62-66): Four queries on `BannerAd`, one per slot (`slot1`-`slot4`), checking `status = 1` and date range `start_date <= now() <= end_date`.
+
+4. **View** → `resources/views/frontend/index.blade.php` receives 12 compact variables: `videos`, `trendingVideos`, `featuredVideos`, `featuredChannels`, `reels`, `featuredActors`, `featuredInfluencers`, `featuredInvestors`, `slot1Banners`-`slot4Banners`.
+
+5. **Infinite Scroll** → When user scrolls to bottom, JS fires GET to `/fetch-videos?page=N` → `HomeController@fetchVideos` → `HomeService::fetchVideos()` (line 133-166): File-cached for 30s with key `fetch_videos_{md5(page+category+q)}`. Returns rendered HTML of `video_card` partials + `has_more` boolean.
+
+6. **Notifications API** → `HomeController@notifications` (line 26-34) returns JSON of latest 20 `UserNotification` records with `unread_count`. `readAllNotifications()` marks all as read.
+
+This is the main landing page of the Binteo platform. It is a rich, multi-section page designed to immediately engage visitors with trending content, featured profiles, and reels.
+
+**What the page contains from top to bottom:**
+
+1. **Hero Welcome Section** — A full-width promotional banner saying "Welcome to Binteo" with an orange accent color (`#ff571a`). Three CTA buttons are prominently displayed:
+   - "Upload Video" (orange filled button linking to `videos.create`)
+   - "Create Reel" (outlined button linking to `reels.create`)
+   - "Explore Marketplace" (outlined button linking to `marketplace.index`)
+   - Background subtle orange glow effect and fade-in entrance animations
+
+2. **Featured Videos Section** — If `$featuredVideos` has records, up to 4 featured video cards are shown in a responsive grid (1-4 columns based on screen width). Each uses the `partials.video_card` component.
+
+3. **Interactive Tab Section** — Two tabs toggled via Alpine.js (`x-data="{ activeTab: 'trending' }"`):
+   - **Trending Tab**: Shows `$trendingVideos` in a grid with a "View All Trending" CTA button. If empty, shows a dashed border placeholder message.
+   - **Featured Profiles Tab**: Contains four auto-scrolling infinite carousels:
+     - **Featured Channels**: Infinite scroll left, uses `channel_card_small` partial
+     - **Top Actors**: Infinite scroll left, uses `creator_card_small` partial
+     - **Top Influencers**: Infinite scroll right (reverse direction)
+     - **Premium Investors**: Infinite scroll left
+     - Each carousel has drag-to-scroll support (mouse + touch), auto-pause on hover, and a "Explore Profile Marketplace" CTA at the bottom
+   - Each carousel uses Alpine.js `x-data` with animation loop via `requestAnimationFrame`
+
+4. **Banner Slot 2** — Inline banner carousel (`banner_carousel` partial) shown if `$slot2Banners` exist
+
+5. **Reels Section** (Orange-themed gradient background) — A horizontal carousel of up to 5 reels:
+   - Each reel card is 9:16 aspect ratio, plays video on hover
+   - Shows user avatar, channel name, title, engagement stats (likes, views, comments)
+   - Three-dot options menu per reel
+   - Age-restricted / reported reels show a gate overlay with "I Understand" button
+   - "See All" card at the end linking to `reels.index`
+   - Left/right navigation arrow buttons
+   - Gradient fade edges on desktop
+
+6. **Category Scroller** — Horizontal scrollable category pills. "All" is highlighted by default. Each category links to `category.show` with the category slug.
+
+7. **Main Video Feed** — A responsive grid (1-4 columns) of video cards loaded from `$videos`. After the 8th video, banner slots 3 and 4 are inserted (if available) as a full-width row. Uses `video_card` partial.
+
+8. **Infinite Scroll** — If `$videos->hasPages()`, an infinite scroll loader is rendered with a spinner ring and "Loading more videos..." text. A scroll sentinel div triggers AJAX pagination.
+
+**Key Features:**
+- Full Tailwind CSS with dark mode (`dark:` prefix)
+- Alpine.js for tabs, carousels, hover play, options menu
+- Material Symbols icon set
+- Responsive design (mobile to desktop)
+- Processing/optimizing state with video polling
+- Age restriction / premium content gating
+- Infinite scroll pagination with skeleton loader
+
+---
+
+## STEP 2 Trending Page (trending.blade.php)
+**Route:** `GET /trending` → `VideoController@trending` → `VideoService::trending()`
+**Layout:** `<x-app-layout>`
+
+**Controller Logic Flow:**
+
+1. **Route** → `routes/web.php:33` — `Route::get('/trending', [VideoController::class, 'trending'])->name('trending');`
+
+2. **Controller** → `VideoController@trending` (VideoController.php, line 204-208):
+   - Calls `$this->videoService->trending()` — no request params needed
+   - Sets `$pageTitle = 'Trending Videos'`
+   - Returns `view('frontend.trending', $data)`
+
+3. **Service** → `VideoService::trending()` (VideoService.php, line 648-659):
+   - `Video::forUser()->with(['user.channel'])` — public/published scope
+   - `withCount(['viewLogs as daily_views' => fn($q) => $q->where('created_at', '>=', now()->subDay())])` — subquery counts views in last 24 hours
+   - Ordered by: `is_trending DESC` (admin can boost) → `daily_views DESC` → `views_count DESC`
+   - `paginate(24)` — 24 videos per page
+
+4. **View** → `resources/views/frontend/trending.blade.php` renders a responsive grid of `video_card` partials with standard `->links()` pagination.
+
+A paginated grid page showing all trending videos across the platform.
+
+**Features:**
+- Header with "Trending Now" title and orange gradient icon
+- Subtitle: "Explore What's Hot Across The Platform"
+- Responsive grid of `video_card` components
+- Laravel pagination links at the bottom
+- Full dark mode support
+
+---
+
+## STEP 3 Category Videos (category_videos.blade.php)
+**Route:** `GET /category/{slug}` → `HomeController@category` → `HomeService::getCategoryVideos()`
+**Layout:** `<x-app-layout>`
+
+**Controller Logic Flow:**
+
+1. **Route** → `routes/web.php:31` — `Route::get('/category/{slug}', [HomeController::class, 'category'])->name('category.show');`
+
+2. **Controller** → `HomeController@category` (HomeController.php, line 37-41):
+   - Passes `$slug` to `$this->homeService->getCategoryVideos($slug)`
+   - Returns the view
+
+3. **Service** → `HomeService::getCategoryVideos()` (HomeService.php, line 110-131):
+   - `Category::where('slug', $slug)->firstOrFail()` — 404 if slug invalid
+   - `Video::forUser()->where('is_premium', 0)->with(['user.channel'])->whereHas('categories', fn($q) => $q->where('slug', $slug))->latest()->paginate(12)`
+   - Also fetches `Reel::forUser()` in same category for a secondary section
+   - Returns `compact('category', 'videos', 'reels', 'pageTitle')`
+
+Shows all videos belonging to a specific category.
+
+**Features:**
+- Header showing the category name with dynamic icon
+- Responsive grid of video cards
+- Pagination
+- Back navigation to home
+- Dark mode support
+
+---
+
+## STEP 4 Search Page (search.blade.php)
+**Route:** `GET /search?query=...` → `SearchController@index` → `SearchService::index()`
+**Layout:** `<x-app-layout>`
+**Middleware:** `throttle:search` (rate-limited to prevent abuse)
+
+**Controller Logic Flow:**
+
+1. **Route** → `routes/web.php:84` — `Route::get('/search', [SearchController::class, 'index'])->name('search')->middleware('throttle:search');`
+
+2. **Controller** → `SearchController@index` (SearchController.php) delegates to `SearchService::index()`
+
+3. **Service** → `SearchService::index()`:
+   - Searches `Video::forUser()->where('title', 'LIKE', "%$query%")->orWhere('description', 'LIKE', "%$query%")` — full-text LIKE search on title and description
+   - Results paginated with eager-loaded `user.channel`
+   - Also searches reels and channels matching the query
+   - Autocomplete via separate API: `/api/search/suggestions` and `/api/search/mentions`
+
+Displays search results filtered by keyword.
+
+**Features:**
+- Search query displayed in header with result count
+- Responsive grid of matching video cards
+- Empty state when no results: "No results found for your search"
+- Pagination
+- Uses query string for results
+
+---
+
+## STEP 5 Embed Video Page (embed_video.blade.php)
+**Route:** `GET /embed/{slug}` → `VideoController@show` (same as main video page, different layout)
+**Layout:** Minimal layout (no nav, no sidebar)
+
+**Controller Logic Flow:**
+
+1. **Route** → No dedicated route; uses `videos.show` route with a different layout selection based on the request path or a dedicated minimal Blade layout
+
+2. **Logic** → Same `VideoService::show()` as the main video page (see Part 2, Step 1 for full breakdown), but rendered without the app layout — just the player, title overlay, and basic controls in a clean `<body>` frame
+
+3. **Purpose** → Used for `<iframe>` embeds on external websites. No sidebar, no comments, no related videos — just the player.
+
+A lightweight page for embedding videos on external websites (like YouTube's embed iframe).
+
+**Features:**
+- Minimal layout with just the video player
+- Responsive video container
+- Title overlay
+- No navigation or sidebar (clean embed)
+
+---
+
+## STEP 6 OTT Streaming Page (ott.blade.php)
+**Route:** `GET /mini-ott` → `User\PlanController@ott`
+**Layout:** `<x-app-layout>`
+
+**Controller Logic Flow:**
+
+1. **Route** → `routes/web.php:64` — `Route::get('/mini-ott', [\App\Http\Controllers\User\PlanController::class, 'ott'])->name('premium');`
+
+2. **Controller** → `User\PlanController@ott`:
+   - Fetches OTT (Over-The-Top) content — premium/exclusive videos that require an OTT subscription
+   - Queries active OTT plans and subscription-gated content
+   - Checks `auth()->user()->hasOttAccess()` for content gating in the view
+   - Returns categories with their premium videos, featured hero content
+
+Over-The-Top streaming content hub — a Netflix-style content browsing experience.
+
+**Features:**
+- Hero banner with featured OTT content
+- Category rows with horizontal scrolling
+- Movie/series style cards
+- Subscription-gated content (requires OTT plan)
+- Responsive grid layout
+
+---
+
+## STEP 7 Premium Pages
+
+### Premium Page (premium.blade.php)
+**Route:** `GET /premium`
+**Layout:** `<x-app-layout>`
+
+Landing page showcasing premium content offerings.
+
+**Features:**
+- Premium branding with diamond icon
+- List of premium content benefits
+- Pricing/plans overview
+- CTA to purchase premium access
+
+### Premium Trending (premium_trending.blade.php)
+**Route:** `GET /premium/trending`
+**Layout:** `<x-app-layout>`
+
+Trending premium-only content page.
+
+**Features:**
+- Filtered view of trending premium videos
+- Premium badge on all cards
+- Purchase-gated content
+- Grid layout with pagination
+
+### Premium Videos (premium_videos.blade.php)
+**Route:** `GET /premium/videos`
+**Layout:** `<x-app-layout>`
+
+All premium videos in one place.
+
+**Features:**
+- Full grid of premium content
+- Each card shows price and "Premium" badge
+- Lock overlay for non-purchasers
+- Pagination
+
+---
+
+## STEP 8 Stock Videos Page (stock-videos.blade.php)
+**Route:** `GET /stock-videos`
+**Layout:** `<x-app-layout>`
+
+A library of stock/royalty-free videos available on the platform.
+
+**Features:**
+- Header with "Stock Video Library" branding
+- Grid of stock video cards
+- Each shows duration, resolution, preview
+- Download/purchase options
+- Category filters
+- Pagination
+
+---
+
+## STEP 9 Static Pages
+
+### Settings Page (static/settings.blade.php)
+**Route:** `GET /settings` → Closure (routes/web.php:525)
+**Layout:** `<x-app-layout>`
+
+**Controller Logic:**
+- No controller — defined as `Route::get('/settings', function() { return view('frontend.static.settings'); })`
+- Pure static Blade view with no backend data
+
+Application settings and configuration page.
+
+**Features:**
+- Language selection
+- Theme toggle (light/dark)
+- Notification preferences
+- Privacy settings
+- Account management links
+
+### Help Page (static/help.blade.php)
+**Route:** `GET /help` → Closure (routes/web.php:526)
+**Layout:** `<x-app-layout>`
+
+**Controller Logic:**
+- Same pattern as Settings — static closure returning the view directly
+
+FAQ and help center page.
+
+**Features:**
+- Accordion-style FAQ sections
+- Search within help articles
+- Contact support CTA
+- Category-organized help topics
+
+### Policy Page (policy.blade.php)
+**Route:** `GET /policy/{id}/{slug}` → `SiteController@policyPages`
+**Layout:** `<x-app-layout>`
+
+**Controller Logic:**
+1. **Route** → `routes/web.php:529` — `Route::get('/policy/{id}/{slug}', 'policyPages')` in SiteController group
+2. **SiteController@policyPages**: Queries `Frontend` model (CMS table) by `id` and `slug` where `data_keys` matches expected key
+3. Renders CMS-managed content with proper formatting
+
+Renders dynamic policy pages from CMS content.
+
+**Features:**
+- Dynamic title and content from backend
+- Dark mode styled prose
+- Footer with copyright
+- Responsive reading layout
+
+### Cookie Page (cookie.blade.php)
+**Route:** `GET /cookie` → Closure
+**Layout:** `<x-app-layout>`
+
+Pure static view — no controller or backend data.
+
+Cookie consent and privacy information page.
+
+**Features:**
+- Cookie usage explanation
+- Types of cookies used
+- User control options
+- Link to privacy policy
+
+### Generic Pages (pages.blade.php)
+**Route:** `GET /pages/{slug}` → `SiteController@pages`
+**Layout:** `<x-app-layout>`
+
+**Controller Logic:**
+1. **Route** → `routes/web.php:530` — `Route::get('/pages/{slug}', 'pages')`
+2. **SiteController@pages**: Fetches from `Frontend::where('data_keys', 'pages.content')->where('slug', $slug)->firstOrFail()`
+3. Returns dynamic title, body content, and breadcrumb data
+
+Renders any CMS-managed content page dynamically.
+
+**Features:**
+- Dynamic title and body from backend
+- Styled prose with Tailwind typography
+- Responsive layout
+- Breadcrumb navigation
+
+---
+
+## STEP 10 Maintenance & Update Required Pages
+
+### Maintenance Page (maintenance.blade.php)
+**Route:** `GET /maintenance` → Closure (routes/web.php:533-536)
+**Condition:** `gs('maintenance_mode') == 1`
+
+**Controller Logic:**
+1. `Route::get('/maintenance', function () { if (gs('maintenance_mode') == 0) return redirect()->route('home'); return view('frontend.maintenance'); })`
+2. `gs()` is a global helper that reads `GeneralSetting` from cache or DB
+3. If maintenance mode is OFF, redirects to home; otherwise shows the maintenance view
+
+A simple branded "Under Maintenance" page.
+
+**Features:**
+- Centered maintenance message
+- Platform logo/name
+- Expected return time (if set)
+- Social media links
+
+### Update Required Page (update_required.blade.php)
+**Route:** Shown when app version is outdated (`/update-required` + `/update-now`)
+**Logic:** Session-based version check — if `session('app_version') != gs('app_version')`, shows update page. `/update-now` sets the session and redirects home.
+
+Prompts users to update their app/browser.
+
+**Features:**
+- "Update Required" warning
+- Current version display
+- Update instructions
+- Browser/device detection notes
+
+---
+
+# PART 2 — VIDEO EXPERIENCE
+
+## STEP 1 Video Show Page (videos/show.blade.php)
+**Route:** `GET /videos/{video}/{playlist?}` → `VideoController@show` → `VideoService::show()`
+**Layout:** `<x-app-layout>`
+**Middleware:** `throttle_views`
+
+**Controller Logic Flow — `VideoService::show()` (lines 33-218 of VideoService.php):**
+
+**Step A: Video Resolution (line 39-47)**
+- Queries `Video::with(['user.channel', 'categories', 'copyrightStrikes' => fn($q) => $q->where('status', 'active')])`
+- If `$video` is numeric → `where('id', $video)`. If string → `where('slug', $video)`
+- If not found → returns `['redirect' => route('home'), 'notify' => ['error', 'Video no longer available']]`
+- Controller catches this and redirects
+
+**Step B: Visibility Gate (line 49-53)**
+- If `$video->visibility == Status::PRIVATE` AND (not logged in OR not owner) → `abort(403, 'This video is private.')`
+
+**Step C: Copyright Strike Gate (line 55-58)**
+- If video has active strikes OR uploader has >= 3 active strikes → `abort(403, 'Content unavailable due to copyright strike.')`
+
+**Step D: Premium Access Check (line 60-72)**
+- `$hasAccess` starts `true`. If `$video->is_premium`, set to `false`, then re-check:
+  1. Owner or purchased → `$hasAccess = true`
+  2. `pricing_tier == 2` (exclusive/OTT) + user has OTT access → true
+  3. User has premium plan → true
+- Otherwise view shows lock overlay with price
+
+**Step E: Scheduled Content Gate (line 74-77)**
+- Future `scheduled_at` + not owner → `$hasAccess = false`
+
+**Step F: Age Restriction (line 79)**
+- `$isAgeVerified = !$video->is_age_restricted || auth()->check()` — login required for 18+ content
+
+**Step G: Video URL Resolution (line 81-86)**
+- Bunny CDN + `bunny_status === 'ready'` → `$video->getPlayUrl()` (signed Bunny URL)
+- Else if `hls_path` → `asset($video->hls_path)`
+- Otherwise empty → placeholder shown
+
+**Step H: Playlist Context (line 88-109)**
+- `?list=watch-later` → loads user's Watch Later playlist with videos+reels
+- `?list=liked` → creates ad-hoc playlist from user's liked videos
+- Numeric → `Playlist::find($playlistId)` with eager-loaded videos+reels
+
+**Step I: Comments (line 111-118)**
+- `$video->comments()->whereNull('parent_id')->orderBy('is_pinned', 'desc')`
+- Sort: `top` → `withCount('likes')->orderBy('likes_count', 'desc')`; default → `latest()`
+- `take(20)` top-level, eager loads `user`, `replies.user`, `likes`
+
+**Step J: Related Videos (line 120-149)**
+- Base: `Video::published()->where('id', '!=', $video->id)->with('user.channel')`
+- `filter=channel` → same uploader. `filter=related` → shared categories. Fills to 10 with latest if under 6.
+
+**Step K: View Counting (line 176-210) — Critical Pattern**
+- Uses `app()->terminating()` callback — response returns to browser FIRST, then count happens
+- Increments `views_count`. If `impressions < views_count`, sets `impressions = views_count`, else increments
+- If logged in: `ViewLog::updateOrCreate(['user_id', 'video_id'], ['updated_at' => now(), 'device' => $device, 'country' => $country])`
+- Device detection via User-Agent regex (Desktop/Tablet/Mobile)
+- Country via `getIpInfo()` helper
+
+**Step L: Banner Ads (line 156-166)**
+- All 4 banner slots, filtered by active date range, grouped by `slot`
+
+**Data Returned (line 212-218):**
+`compact('video', 'relatedVideos', 'userPlaylists', 'ad', 'reels', 'hasAccess', 'isAgeVerified', 'general', 'playlistData', 'slot1Banners', 'slot2Banners', 'slot3Banners', 'slot4Banners', 'videoPlayUrl')`
+
+The main video player page — the primary content consumption view.
+
+**What the page contains:**
+
+1. **Video Player Area**:
+   - Large video player with Bunny CDN or local video source
+   - Auto-play, controls, fullscreen support
+   - Premium/age-restricted content gating with lock overlay
+   - Encoding progress overlay (circular SVG progress)
+   - Scheduled premiere countdown display
+
+2. **Video Metadata**:
+   - Title prominently displayed
+   - View count (formatted with K/M suffixes), upload date
+   - Channel avatar + name (clickable to channel page)
+   - Subscribe / Unsubscribe button with subscriber count
+   - Three-dot options menu (Report, Share, Add to Playlist, Watch Later, Download)
+
+3. **Action Buttons**:
+   - Like / Unlike (with count, heart icon)
+   - Dislike
+   - Share button (with share modal/URL copy)
+   - Download button (if enabled)
+   - Save to Playlist button
+
+4. **Description Section**:
+   - Expandable description with "Show more" / "Show less"
+   - Hashtags as clickable search links
+   - Category and tags
+
+5. **Comments Section**:
+   - Comment count header
+   - Comment form (for logged-in users) with emoji picker
+   - Pinned comment at top (if any)
+   - Comment feed using `comment_item` partial recursively
+   - Sort options (Newest first, Oldest first, Top liked)
+
+6. **Sidebar — Related Videos**:
+   - Uses `related_videos` partial
+   - Horizontal video cards with hover preview
+   - Related by category, tags, or creator
+
+**Key Features:**
+- Full Alpine.js interactivity for likes, comments, subscribe
+- Real-time comment updates via AJAX
+- Emoji picker in comment forms
+- Responsive layout (player stacks on mobile, sidebar below)
+
+---
+
+## STEP 2 Video Create Page (videos/create.blade.php)
+**Route:** `GET /upload` → `VideoController@create` → `VideoService::create()`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+
+**GET — Load Form:**
+1. `VideoController@create` (VideoController.php, line 155-163) calls `VideoService::create()`
+2. `VideoService::create()` (VideoService.php, line 417-428):
+   - If no `auth()->user()->channel` → returns `['redirect' => route('channels.create')]` — forces channel creation first
+   - Fetches all `Category::all()` records
+   - Checks `auth()->user()->hasPremiumAccess()` — for showing pricing options
+   - Returns `compact('categories', 'hasPremiumAccess', 'general')`
+
+**POST — Store Video:**
+**Route:** `POST /upload` → `VideoController@store` → `VideoService::store()`
+
+3. `VideoService::store()` (VideoService.php, line 430-538):
+   - Validates: title (required, max 255), description, category_id (exists), video (required, mimes:mp4/mov/avi/wmv, max 1GB), thumbnail (nullable, image, max 5MB), visibility, etc.
+   - Uploads video via `fileUploader($videoFile, getFilePath('video'))`
+   - Generates unique slug: `Str::slug($title)` + random 5 chars if collision
+   - Creates `Video` record with all metadata
+   - **Pricing Logic** (line 457-469): Maps string tier ('free'/'premium'/'exclusive') to int (0/1/2). If premium/exclusive AND user has premium access → sets `is_premium = 1` and `price`. Otherwise forces free.
+   - **Scheduling** (line 475-477): If scheduled, parses `$request->schedule_date . ' ' . $request->schedule_time` from IST to app timezone
+   - Saves video, attaches categories via `sync()`
+   - Creates `AdminNotification` for moderation
+   - **Subscriber Notification** (line 495-529): Finds subscribers with `notification_preference = 'all'`. Creates `UserNotification` per subscriber + broadcasts `UserNotification` event (Pusher) + dispatches `SendFirebaseNotificationJob` (FCM push)
+   - **Video Processing** (line 531-535): `ProcessVideo::dispatchSync($video)` — dispatches Bunny CDN upload + HLS transcoding
+   - Returns redirect to `route('videos.show', $video->slug)` with success message
+
+Video upload form for creators.
+
+**Features:**
+- Multi-step upload flow:
+  - Upload video file (with drag & drop zone)
+  - Set title, description, category, language
+  - Choose thumbnail (auto-generated or custom upload)
+  - Set visibility (Public, Private, Draft)
+  - Set monetization (Free, Premium, with pricing)
+  - Age restriction toggle
+  - Scheduling (future premiere date)
+  - Tags/hashtags input (chip-style)
+- Upload progress bar
+- Video file validation (size, format, duration)
+- Terms acceptance checkbox
+- Submit button with processing state
+
+---
+
+## STEP 3 Video History (videos/history.blade.php)
+**Route:** `GET /history` → `VideoController@history` → `VideoService::history()`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+
+1. `VideoService::history()` (VideoService.php, line 301-343):
+   - Gets `auth()->user()->viewLogs()` — all view logs ordered by `updated_at DESC`
+   - Eager-loads `video` (with `forUser()` scope) and `reel` relations
+   - Takes 60 logs, maps to unique videos/reels, limits to 20 each
+   - Also fetches: user's playlists (with video count), liked videos (last 20), commented videos (last 20)
+   - Returns `compact('videos', 'reels', 'playlists', 'likedVideos', 'commentedVideos', 'title')`
+
+**Action Endpoints:**
+- `POST /history/remove/{id}` → `VideoController@removeHistory` → deletes `ViewLog` where `video_id = $id`
+- `POST /history/remove/reel/{id}` → same for `reel_id`
+- `POST /history/clear` → `VideoController@clearHistory` → deletes ALL user's view logs
+
+Shows the user's watch history.
+
+**Features:**
+- Chronological list of watched videos
+- Each entry shows: thumbnail, title, channel, watch date, progress bar
+- Clear all history button (with confirmation)
+- Search within history
+- Responsive grid/table layout
+- Pagination
+
+---
+
+## STEP 4 Liked Videos (videos/liked.blade.php)
+**Route:** `GET /liked-videos` → `VideoController@liked` → `VideoService::liked()`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+
+1. `VideoService::liked()` (VideoService.php, line 374-391):
+   - Gets `$user->likedVideos()->forUser()->with('user.channel')->latest('likes.created_at')` — mapped with `type = 'video'`
+   - Gets `$user->likedReels()->forUser()->with('user.channel')->latest('reel_likes.created_at')` — mapped with `type = 'reel'`
+   - Merges both collections, sorts by `created_at DESC`
+   - Returns `['videos' => $items, 'title' => 'Liked videos']`
+
+**Like Toggle Endpoint:**
+`POST /videos/{video}/like` → `LikeController@toggle` → `VideoService::toggleLike()`
+- If already liked → deletes `Like` record, returns `liked: false`
+- If not liked → creates `Like` record, broadcasts `UserNotification` to video owner (if not self), returns `liked: true`
+- Returns `likes_count` for live UI update
+
+Shows all videos the user has liked.
+
+**Features:**
+- Grid of liked videos
+- Unlike button per video
+- Count of total liked videos
+- Empty state: "No liked videos yet"
+- Pagination
+
+---
+
+## STEP 5 Watch Later (videos/watch_later.blade.php)
+**Route:** `GET /watch-later` → `VideoController@watchLater` → `VideoService::watchLater()`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+
+1. `VideoService::watchLater()` (VideoService.php, line 393-415):
+   - Finds user's playlist named 'Watch Later' — `$user->playlists()->where('name', 'Watch Later')->first()`
+   - If no playlist exists → returns empty collection
+   - Eager-loads videos (with `forUser()` scope) and reels from that playlist via pivot table `playlist_video`/`playlist_reel`
+   - Merges both collections, maps `type` attribute, sorts by pivot `created_at DESC`
+   - Returns `['videos' => $items, 'title' => 'Watch Later']`
+
+**Toggle Endpoint:** `POST /watch-later/{id}` or `POST /videos/{video:id}/watch-later` → `PlaylistController@watchLater`
+- Creates 'Watch Later' playlist if it doesn't exist
+- Attaches/detaches video from playlist
+- Returns `['status' => 'added'|'removed']`
+
+Shows videos saved for later viewing.
+
+**Features:**
+- Grid of saved videos
+- Remove from watch later button
+- Total count
+- Channel info per video
+- Empty state with "Discover Content" CTA
+- Pagination
+
+---
+
+# PART 3 — REELS (SHORT-FORM VIDEOS)
+
+## STEP 1 Reels Index (reels/index.blade.php)
+**Route:** `GET /reels` → `ReelController@index` → `ReelService::index()`
+**Layout:** `<x-app-layout>` (custom minimal header)
+
+**Controller Logic Flow — `ReelService::index()` (ReelService.php, lines 54-185):**
+
+**Step A: Parameter Parsing (line 56-69)**
+- `$reelSlug` — from `?reel=` query (deep-link to specific reel)
+- `$search` — from `?q=` query (text search)
+- `$hashtag` — from `?hashtag=` query, or auto-detected if `$search` starts with `#`
+
+**Step B: Base Query (line 71-87)**
+- If logged in: `forUser()` scope OR user's own published reels that are not private
+- If logged out: only `forUser()` scope
+- Eager loads: `user.channel`, `music`, `hashtags`, `likes`, `channel.subscribers`, `category`
+- With counts: `comments`, `likes`, `shares`
+
+**Step C: Filtering (line 89-99)**
+- `$hashtag` → `whereHas('hashtags', fn($q) => $q->where('hashtag', $tag))`
+- `$search` → `where('title', 'LIKE', "%$search%")->orWhere('description', 'LIKE', "%$search%")`
+
+**Step D: Specific Reel Mode (line 101-127)**
+- If `$reelSlug` provided: fetches specific reel, validates visibility (public OR owner), sets as first reel in collection, merges with 49 random others
+- Falls back to 50 random reels
+
+**Step E: Playlist State (line 164-182)**
+- For logged-in users: checks which reels are already saved in user's playlists (especially Watch Later) for UI toggle state
+
+**Step F: Additional Data**
+- `$moreReels` — 15 additional random reels for infinite scroll
+- Returns `compact('reels', 'moreReels', 'playlistData', 'watchLaterReelIds')`
+
+**Like/View/Comment Endpoints:**
+- `POST /reels/{reel}/like` → `ReelController@like` → `ReelService::like()` — toggles `ReelLike`, increments/decrements `likes_count`
+- `POST /reels/{reel}/view` → `ReelController@recordView` → `ReelService::recordView()` — creates `ReelView` + updates `ViewLog`, increments `views_count`
+- `POST /reels/{reel}/dwell` → `ReelController@logDwell` → updates dwell time on latest `ReelView`
+- `POST /reels/{reel}/comment` → `ReelController@comment` → `ReelService::comment()` — checks blacklisted keywords, creates `ReelComment`, increments `comments_count`, processes @mentions, notifies reel owner + parent comment author + mentioned users
+
+A TikTok-style vertical feed of short-form videos.
+
+**What the page contains:**
+
+1. **Full-Screen Vertical Feed** — Scrolling through reels one at a time:
+   - Each reel fills the viewport height
+   - Auto-plays when in view
+   - Pauses when scrolled away
+   - Swipe up/down navigation (touch + mouse wheel)
+
+2. **Reel Player**:
+   - Vertical 9:16 aspect ratio video
+   - Play/pause on tap
+   - Mute/unmute toggle
+   - Video progress bar (thin line at top)
+
+3. **Right Side Action Bar** (overlaid):
+   - User avatar (clickable to profile)
+   - Like button with count (animated heart)
+   - Comment button with count
+   - Share button
+   - Save to playlist / Watch later
+   - Three-dot options menu
+
+4. **Bottom Info Overlay**:
+   - Username with follow button
+   - Reel title/description
+   - Soundtrack name (if any, with spinning vinyl icon)
+   - Hashtags
+
+5. **Comment Sheet** — Bottom sheet overlay for viewing/adding comments
+
+**Key Features:**
+- Fullscreen mobile-first design
+- Infinite scroll (loads more reels as you approach end)
+- Gesture-based navigation
+- Like animation (heart burst effect)
+- Comment bottom sheet with emoji support
+
+---
+
+## STEP 2 Reel Show (reels/show.blade.php)
+**Route:** `GET /reels/{reel}` → `ReelController@show` → `ReelService::show()`
+**Layout:** `<x-app-layout>` (minimal)
+
+**Controller Logic Flow:**
+1. `ReelService::show()` (ReelService.php, line 187-201):
+   - Finds reel by ID or slug
+   - If not found → returns `['redirect' => route('reels.index'), 'notify' => ['error', 'Reel no longer available']]`
+   - Calls `$this->checkVisibility($reelModel)` — if private AND not owner → `abort(403)`
+   - Redirects to `reels.index?reel={slug}` — the actual rendering happens on the index page with that reel focused
+
+Single reel view (deep link / shared URL).
+
+**Features:**
+- Same player as reels index but for a single reel
+- Related reels at the bottom
+- Share modal
+- Comments section below
+- Full metadata display
+
+---
+
+## STEP 3 Reel Create (reels/create.blade.php)
+**Route:** `GET /reels/upload` → `ReelController@create` → `ReelService::create()`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+
+**GET — Load Form:**
+1. `ReelService::create()` (ReelService.php, line 204-231):
+   - No channel? → `['redirect' => route('channels.create')]`
+   - Fetches active `Category` records + latest 50 `ReelMusic` tracks
+   - If `?music=` param → pre-selects that track
+   - If `?duet=` param → loads original reel for duet layout
+   - Returns `compact('categories', 'musicTracks', 'duetReel')`
+
+**POST — Store Reel:**
+**Route:** `POST /reels/upload` → `ReelController@store` → `ReelService::store()`
+
+2. `ReelService::store()` (ReelService.php, line 281-443):
+   - Validates: video (required, mimes:mp4/mov/webm, max 50MB), title, description, thumbnail, category, music_id, tags, visibility, age_restricted, allow_comments/duet/stitch
+   - Creates `Reel` record with all metadata
+   - Duet handling: if `parent_id` set, links to original reel, sets `is_duet = 1`
+   - Music: `music_id` → links+increments usage; custom `music_file` → uploads; `global_music_url` → stores external URL
+   - Hashtags: extracts `#tag` from description + explicit input → stores `ReelHashtag` records
+   - Mentions: extracts `@username` → creates `ReelMention` records
+   - Dispatches `CompressReel` job (background compression)
+   - **Subscriber Notification**: creates `UserNotification` + broadcasts event + dispatches FCM push for each subscriber with `notification_preference = 'all'`
+   - Returns redirect to `route('reels.show', $reel->slug)`
+
+Upload a new short-form video reel.
+
+**Features:**
+- File upload zone (video, max duration ~60s)
+- Trim/cut tool (optional)
+- Soundtrack selection (from saved audio library)
+- Text overlay options
+- Title, description, hashtags
+- Visibility settings (Public, Draft, Private)
+- Comments toggle
+- Category selection
+- Submit with processing overlay
+
+---
+
+## STEP 4 Reel Audio Library (reels/audio.blade.php)
+**Route:** `GET /reels/audio/{id}` or `GET /reels/audio` → `ReelController@audio` → `ReelService::audio()`
+**Layout:** `<x-app-layout>`
+
+**Controller Logic Flow:**
+
+1. `ReelService::audio()` (ReelService.php, line 837-868):
+   - If `$id` starts with `original_` → loads source reel, builds virtual music object, queries reels using this original audio
+   - Otherwise → loads `ReelMusic` by slug/ID, queries reels using that track
+   - Returns `compact('music', 'reels')` with pagination
+
+**Save/Use Audio Endpoints:**
+- `POST /reels/{slug}/save-audio` → `ReelActionController@saveAudio` → creates `SavedAudio` record or deletes it (toggle)
+- `GET /reels/{slug}/use-audio` → `ReelActionController@useAudio` → redirects to `reels.create?music={slug}` with audio pre-selected
+
+Browse and select audio tracks for reels.
+
+**Features:**
+- Trending audio tracks
+- Search audio by title/artist
+- Play preview (30-second clip)
+- Save to favorites
+- "Use in Reel" button (redirects to create with audio pre-selected)
+- Categories (Genres, Moods, Trending)
+- Pagination
+
+---
+
+# PART 4 — CHANNELS
+
+## STEP 1 Channel Show (channels/show.blade.php)
+**Route:** `GET /channels/{channel}` or `GET /@{username}` → `ChannelController@show` → `ChannelService::show()`
+**Layout:** `<x-app-layout>`
+
+**Controller Logic Flow:**
+
+**Standard Route (line 60):** `Route::get('/channels/{channel}', [ChannelController::class, 'show'])->name('channels.show');`
+
+**Username Alias (line 62):** `Route::get('/@{username}', [ChannelController::class, 'showByUsername'])->name('channels.show_by_username');`
+- Resolves username to channel, then calls `show()` with the channel slug
+
+**Service Logic — `ChannelService::show()`:**
+1. Finds `Channel` by slug with eager loads: `user`, `videos` (forUser scope), `subscribers`
+2. If channel not found → redirects home
+3. Gathers:
+   - Channel stats: total videos, total views, join date, location
+   - Subscriber count + `$isSubscribed` boolean for current user
+   - Content tabs: Videos (paginated), Reels (paginated), Playlists (paginated), About section with full description
+4. Returns view with all data
+
+**Subscribe Toggle:** `POST /channel/{id}/subscribe` → `SubscriptionController@toggle`
+- Creates or deletes `Subscription` pivot (user/channel via `subscribers` many-to-many)
+- Updates `subscribers_count` on channel
+- Returns JSON: `{ subscribed: bool, subscribers_count: int }`
+
+**Channel Report:** `POST /channels/{id}/report` → Creates `Report` record targeting the channel
+
+Public channel/profile page for a creator.
+
+**What the page contains:**
+
+1. **Channel Header**:
+   - Banner/cover image (with gradient overlay)
+   - Channel avatar (large, circular)
+   - Channel name + handle
+   - Subscriber count
+   - Subscribe / Unsubscribe button
+   - Channel description/bio
+   - Social links (YouTube, Instagram, Twitter, etc.)
+   - Website link
+
+2. **Content Tabs**:
+   - **Videos**: Grid of channel's uploads
+   - **Reels**: Grid of channel's reels
+   - **Playlists**: Channel's created playlists
+   - **About**: Full channel description, join date, stats
+
+3. **Stats Bar**:
+   - Total videos count
+   - Total views
+   - Join date
+   - Country/location
+
+---
+
+## STEP 2 Channel Create (channels/create.blade.php)
+**Route:** `GET /channels/create` → `ChannelController@create` → `ChannelService::create()`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+
+1. `ChannelService::create()`:
+   - Checks if user already has a channel → redirect to `studio.dashboard` if yes
+   - Returns categories list for the category dropdown
+
+**POST:** `POST /channels` → `ChannelController@store` → `ChannelService::store()`
+- Validates: name (required), handle (unique), avatar (image), cover (image), description, social_links, category_id, website
+- Uploads avatar and cover images via `fileUploader()`
+- Creates `Channel` record with `user_id = auth()->id()`
+- Redirects to `studio.dashboard` with success notification
+
+**AJAX Availability Check:** `POST /channels/check-availability` → `ChannelController@checkAvailability`
+- Checks if handle/username is unique, returns JSON `{ available: bool }`
+
+Create a new channel/profile.
+
+**Features:**
+- Channel name input
+- Handle/username (unique, validated)
+- Avatar upload with crop
+- Cover/banner image upload
+- Description/bio textarea
+- Social links (multiple platforms)
+- Category/niche selection
+- Website URL
+- Submit with preview
+
+---
+
+# PART 5 — PLAYLISTS
+
+## STEP 1 Playlists Index (playlists/index.blade.php)
+**Route:** `GET /playlists` → `PlaylistController@index`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `PlaylistController@index` → `PlaylistService::index()`:
+   - Fetches all public playlists (paginated) with eager-loaded videos (for thumbnail) and creator channel
+   - Supports `?category=` filter and `?q=` search
+   - Returns `compact('playlists', 'categories')`
+
+Browse all public playlists.
+
+**Features:**
+- Grid of playlist cards
+- Each card shows: thumbnail stack, playlist name, video count, creator name
+- Featured playlists section
+- Category filters
+- Search playlists
+- Pagination
+
+---
+
+## STEP 2 Playlist Show (playlists/show.blade.php)
+**Route:** `GET /playlists/{username}/{playlist}` → `PlaylistController@show`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `PlaylistController@show` → `PlaylistService::show()`:
+   - Loads playlist by username + slug pair (unique constraint)
+   - Eager-loads all videos with `user.channel`
+   - Checks ownership → owner sees drag-to-reorder handles, others see fixed queue
+   - Returns `compact('playlist', 'videos', 'isOwner')`
+
+**Key Endpoints:**
+- `POST /playlists/toggle-video/{video}` → Adds/removes video from playlist
+- `POST /playlists/toggle-reel/{reel}` → Adds/removes reel from playlist
+- `POST /playlists` → Creates new playlist
+- `DELETE /playlists/{playlist}` → Deletes playlist
+- `GET /playlist-membership/{id}` → Returns membership/purchase status for paid playlists
+
+View and play a specific playlist.
+
+**Features:**
+- Playlist header with title, description, total duration
+- Creator info
+- Shuffle play all button
+- Video queue list (scrollable sidebar)
+- Now playing indicator
+- Drag to reorder (if owner)
+- Save playlist button
+- Share playlist
+- Auto-play next video
+
+---
+
+# PART 6 — LIVE STREAMING
+
+## STEP 1 Live Show Page (live/show.blade.php)
+**Route:** `GET /live/{slug}` → `LiveStreamController@show` → `LiveStreamService::show()`
+**Layout:** `<x-app-layout>`
+
+**Controller Logic Flow:**
+1. `LiveStreamController@show` → `LiveStreamService::show()`:
+   - Finds live stream by slug, checks if stream is active (`status = 'live'`)
+   - If ended → shows VOD recording if available
+   - Passes HLS/RTMP stream URL + stream metadata to view
+   - Returns `compact('stream', 'streamUrl', 'chatMessages', 'isLive')`
+
+**Go-Live Endpoint:** `GET /live/start` → `LiveStreamController@goLive` (auth required)
+- Creates or activates a live stream for the user's channel
+- Returns stream key and server URL for RTMP push
+
+**Chat:** `POST /live/{stream}/chat` → Creates `LiveChat` message, broadcasts via Pusher
+- Messages stored in `LiveChat` model with user relation
+
+Live streaming video player page.
+
+**Features:**
+- Live video player (HLS/RTMP stream)
+- "LIVE" badge with viewer count
+- Chat sidebar (real-time messaging)
+- Like button
+- Share stream
+- Stream info (title, description, category)
+- Host/streamer info with subscribe button
+- Donation/super chat feature
+- Upcoming streams list
+- Recording available after stream ends (VOD)
+
+---
+
+# PART 7 — STUDIO (CREATOR DASHBOARD)
+
+## STEP 1 Studio Dashboard (studio/dashboard.blade.php)
+**Route:** `GET /studio/dashboard` and `GET /studio` → `StudioController@dashboard` → `StudioService::dashboard()`
+**Layout:** `<x-app-layout>` (with `studio_sidebar` partial)
+**Middleware:** `auth`
+
+**Controller Logic Flow — `StudioService::dashboard()` (StudioService.php, lines 36-113):**
+
+**Step A: Aggregate Stats (line 38-44)**
+- Loads ALL user's videos with `likes_count` and `comments_count`
+- Loads ALL user's reels
+- `$totalViews = $videos->sum('views_count') + $reels->sum('views_count')`
+- `$totalLikes = $videos->sum('likes_count') + $reels->sum('likes_count')`
+- `$totalComments = $videos->sum('comments_count') + $reels->sum('comments_count')`
+- `$subscribersCount = $user->channel?->subscribers_count ?? 0`
+
+**Step B: Growth Calculations (line 47-88)**
+- Compares last 30 days vs total for each metric:
+  - `newSubscribers = Subscription::where('channel_id', $channelId)->where('created_at', '>=', $thirtyDaysAgo)->count()`
+  - Growth % = `($newSubscribers / $subscribersCount) * 100` or null if 0
+  - Same for views (via `ViewLog`), likes (`Like` + `ReelLike`), comments (`Comment` + `ReelComment`)
+- Returns `dashboardStats` with formatted strings like `'+5.2%'` or `'N/A'`
+
+**Step C: Additional Data (line 91-112)**
+- `$recentVideos` — latest 5 videos with status badges
+- `$recentReels` — latest 5 reels
+- `$plans` — all subscription plans for upsell
+- `$userPlanIds` — IDs of user's active purchased plans
+- `$moderationReports` — combines video `Report` + reel `ReelReport` where `status = 1` (active), sorted latest, take 10
+
+**View Rendering:**
+- Profile greeting hero with channel name/avatar
+- 5 stat cards with trend arrows
+- Safety & Policy hub with 3-step modal (violation → impact → resolution)
+- Recent uploads table with optimizing status polling
+- Milestone radar (progress toward 100K views, 1K subs, 10K likes)
+- Unreplied comments with inline reply via Alpine.js + fetch
+- Premium plan purchase cards with Razorpay
+
+The main creator landing page after logging in, providing a comprehensive overview of channel performance, safety, recent activity, and monetization.
+
+**What the page contains:**
+
+1. **Profile Greeting Hero** — Personalized greeting with user avatar, channel name, and status. If no channel exists, shows "Create Channel" CTA. For approved creators, shows "Creator" badge.
+
+2. **Quick Action Cards** — Four gradient cards for key actions: Upload, Content, Earn Money, Edit Profile.
+
+3. **Feature Preview (for non-creators)** — Locked cards with "Coming Soon" overlay showing: Upload, Analytics, Monetization, Safety Hub.
+
+4. **Safety & Policy Hub** — Three-part modal system:
+   - Copyright strikes display with status indicators
+   - "View Details" button opens a 3-step modal:
+     - Step 1: Violation Overview
+     - Step 2: Channel Impact
+     - Step 3: Resolution path
+   - Community notices section
+
+5. **Performance Overview** — 5 stat cards with trend indicators:
+   - Wallet Balance (with "Get Paid" button)
+   - Subscribers (with trend arrow)
+   - Total Views
+   - Engagement Rate
+   - Interactions
+
+6. **Recent Uploads** — Dual layout (mobile cards / desktop table):
+   - Thumbnail, title, date, views
+   - Optimizing state overlay with polling
+   - Premium/Scheduled/Processing badges
+   - Edit and Delete actions
+
+7. **Recent Reels Performance** — Grid of recent reels with stats and edit/delete overlay
+
+8. **Milestone Radar** — Progress bars toward goals:
+   - Total Views (toward 100K)
+   - Subscribers (toward 1K)
+   - Total Likes (toward 10K)
+
+9. **Unreplied Comments Center** — Displays recent unreplied comments with inline reply capability via Alpine.js + fetch
+
+10. **Strategy Guide Checklist** — Actionable tips:
+    - Optimize Metadata
+    - Monetization Check
+    - Manage Content
+
+11. **Premium Creator Plans** (conditional) — Subscription plan cards with Razorpay payment integration
+
+**Key Features:**
+- Alpine.js for strike modal, comment replies, polling
+- Razorpay integration for plan purchases
+- Responsive mobile/desktop layout
+- Full dark mode
+- Real-time video processing status polling
+
+---
+
+## STEP 2 Studio Videos (studio/videos.blade.php)
+**Route:** `GET /studio/videos` → `StudioController@videos` → `StudioService::videos()`
+**Layout:** `<x-app-layout>` (with studio sidebar)
+**Middleware:** `auth`
+
+**Controller Logic Flow — `StudioService::videos()` (StudioService.php, lines 115-141):**
+
+**Data Assembly:**
+1. `$videosQuery = auth()->user()->videos()->latest()` — all user's videos ordered newest first
+2. `$reelsQuery = Reel::where('user_id', auth()->id())->latest()` — all user's reels
+3. **Status Filter**: If `?status=` param present:
+   - `draft` → scope `draft()` 
+   - `published` → scopes `published()->public()`
+   - `private` → scope `private()`
+4. Videos paginated on `videos_page` param, reels on `reels_page` param (separate paginators)
+5. `$watchLaterPlaylist` — user's Watch Later with videos
+6. `$playlists` — all other playlists (excluding Watch Later) with first video/reel thumbnail
+
+**Key Actions:**
+- `POST /studio/videos/{video}/toggle-featured` → `StudioController@toggleFeatured` → toggles `is_featured` boolean
+- `DELETE /studio/videos/{video}` → `StudioController@destroy` → deletes video file + Bunny CDN + DB record
+- `POST /studio/videos/{video}/make-premium` → Sets `is_premium = 1` with price, requires premium access
+
+Channel content management page.
+
+**Features:**
+- **Tabbed Interface**: Videos, Reels, Watch Later, Playlists
+- **Status Filters**: All, Published, Drafts, Private
+- **Videos Tab**:
+  - Mobile: Card grid with thumbnails
+  - Desktop: Full table view
+  - Columns: Thumbnail, Title, Views, Comments, Likes, Date, Status
+  - Status badges: Public (green), Optimizing (yellow), Copyright Strike (red), Rejected (gray), Premium (orange)
+  - Actions: Feature/Unfeature toggle, Edit, Watch, Delete
+- **Optimizing State**: On-video overlay with SVG circular progress + polling
+- **Reels Tab**: Grid with thumbnails, optimizing overlay, status badges, edit/delete
+- **Watch Later Tab**: Grid of saved videos
+- **Playlists Tab**: Grid with thumbnail stack, video count
+- **Desktop Table**: Full-featured with hover effects
+- **Toggle Featured**: AJAX with SweetAlert confirmation
+- **Pagination** with query string preservation
+
+---
+
+## STEP 3 Studio Edit (studio/edit.blade.php)
+**Route:** `GET /studio/videos/{video}/edit` → `StudioController@edit` → `StudioService::edit()`
+**Layout:** `<x-app-layout>` (with studio sidebar)
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+
+**GET — Load Form:**
+1. `StudioController@edit` (StudioController.php, line 52-57):
+   - Ownership check: `auth()->id() != $video->user_id` → `abort(403)`
+   - `StudioService::edit()` returns `compact('video', 'categories', 'hasPremiumAccess')`
+   - Categories loaded for dropdown, premium access for pricing tier visibility
+
+**PUT — Update:**
+**Route:** `PUT /studio/videos/{video}` → `StudioController@update` → `StudioService::update()`
+
+2. `StudioService::update()` (StudioService.php, lines 178-267):
+   - Validates: title (required, max 255), description, thumbnail (image, max 5MB), language, price
+   - Builds data array with: title, description, category_id, language, visibility, location, is_age_restricted, duration, scheduled_at
+   - **Pricing**: Maps tier string to int. If premium/exclusive + user has premium access → sets `is_premium = 1` and `price`. Otherwise forces free.
+   - **Slug regeneration**: If title changed, regenerates slug with collision check (appends random 5 chars)
+   - **Thumbnail**: Uploads new, replaces old via `fileUploader(..., null, $video->thumbnail_path)`
+   - **Captions**: Uploads .vtt/.srt subtitle file
+   - **Categories**: Syncs via `$video->categories()->sync([$categoryId])`
+   - **Tags**: Deletes all old tags, creates new from array (JSON or array input)
+   - **Bunny CDN sync**: If Bunny video, calls `BunnyStreamService::updateVideo()` API to sync title
+   - Returns `['success' => 'Video updated successfully!']`
+
+**DELETE — Destroy:** `StudioController@destroy` (line 74-78):
+   - Ownership check
+   - If Bunny CDN video → calls `BunnyStreamService::deleteVideo()` API
+   - Deletes local video file, thumbnail, HLS directory (recursively)
+   - Deletes DB record
+
+**Post Actions:**
+- `DELETE /studio/videos/{video}/thumbnail` → Deletes thumbnail file, sets `thumbnail_path = null`
+- `POST /studio/videos/{video}/toggle-featured` → Toggles `is_featured` boolean
+
+Video metadata editor.
+
+**Features:**
+- **Basic Details**: Title, Category dropdown, Language dropdown, Location
+- **Description**: Full textarea
+- **Hashtag Input**: Chip-style with Alpine.js `addTag()`/`removeTag()`, comma/space/enter triggers
+- **Subtitles**: Upload .vtt/.srt caption files
+- **Thumbnail Selector**: Clickable upload with live FileReader preview, delete button with SweetAlert
+- **Video Statistics**: Read-only display of views and likes
+- **Monetization**: Pricing tier dropdown (Free/Premium/Exclusive), custom price input
+- **Visibility**: Public/Private radio buttons
+- **Age Restriction**: Toggle switch for 18+
+- **Scheduling**: Toggle + date/time inputs (IST timezone)
+- **Action Bars**: Desktop (fixed bottom) and Mobile/Tablet variants with Save and Delete
+- **Duration Auto-Detect**: Hidden video element to read metadata duration
+- Dark mode support
+
+---
+
+## STEP 4 Studio Analytics (studio/analytics.blade.php)
+**Route:** `GET /studio/analytics` → `StudioController@analytics` → `StudioService::analytics()`
+**Layout:** `<x-app-layout>` (with studio sidebar)
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+
+**Page Load:**
+1. `StudioController@analytics` (StudioController.php, line 22-26) returns view with `pageTitle`
+2. The page is a shell — all chart data is lazy-loaded via separate AJAX endpoints polled every 15 seconds by Alpine.js
+
+**AJAX Endpoints (StudioAnalyticsController):**
+
+a) **Overview** → `GET /studio/analytics/overview?days=28` → `StudioAnalyticsController@overview` (StudioService::overview(), line 657-695):
+   - Queries `AnalyticsContentSummary` for user's videos, grouped by `recorded_at` date
+   - Iterates last N days (default 28), filling gaps with zeros
+   - Returns arrays for ApexCharts: `dates[]`, `views[]`, `watchTime[]`, `subscribers[]`, `revenue[]`
+   - Revenue from `estimated_revenue` field on summaries
+
+b) **Reach** → `GET /studio/analytics/reach?days=28` → `StudioAnalyticsController@reach` (StudioService::reach(), line 697-735):
+   - Same date iteration pattern
+   - Returns `impressions[]`, `ctr[]` (click-through rate = views/impressions), `totalImpressions`, `totalViews`
+   - Combo chart: bar for impressions, line for CTR
+
+c) **Realtime** → `GET /studio/analytics/realtime` → `StudioAnalyticsController@realtime` (StudioService::realtime(), line 737-786):
+   - **Last 48 Hours**: Groups `ViewLog` by hour, returns 48 data points for sparkline
+   - **Last 60 Minutes**: Groups `ViewLog` by minute, returns 60 data points for sparkline
+   - Both include totals for display
+
+d) **Audience** → `GET /studio/analytics/audience` → `StudioAnalyticsController@audience` (StudioService::audience(), line 788-795):
+   - Currently returns static/demo data for countries, age groups, and devices
+   - Structure ready for real analytics integration
+
+**Chart Rendering:**
+- ApexCharts CDN loaded with dark mode config
+- Area chart for overview, combo (bar+line) for reach, sparklines for realtime
+- Responsive sizing based on viewport width
+
+YouTube-style analytics page with charts.
+
+**Features:**
+- **YouTube Studio Styling**: Custom CSS mimicking YouTube's design (`.yt-tab`, `.yt-card`, `.metric-btn`)
+- **Tabbed Navigation**: Overview, Reach, Audience, Revenue
+- **Overview Tab**: 4 metric buttons (Views, Watch Time, Subscribers, Revenue) with ApexCharts area chart
+- **Reach Tab**: Impressions and CTR metrics with combo chart (bar + line)
+- **Audience Tab**: Placeholder
+- **Revenue Tab**: Placeholder
+- **Realtime Sidebar**: "Updating live" indicator, Last 48h views, Last 60min views with sparkline bar charts
+- **Alpine.js Component**: Polls analytics data every 15 seconds via REST API
+- **ApexCharts CDN**: Area chart, combo chart, sparkline, dark mode awareness
+- **Responsive Chart Sizing** based on viewport width
+
+---
+
+## STEP 5 Studio Monetization (studio/monetization.blade.php)
+**Route:** `GET /studio/monetization` → `StudioController@monetization` → `StudioService::monetization()`
+**Layout:** `<x-app-layout>` (with studio sidebar)
+**Middleware:** `auth`
+
+**Controller Logic Flow — `StudioService::monetization()` (StudioService.php, lines 310-334):**
+
+**Step A: Eligibility Calculation**
+- `$totalViews = user's videos->sum('views_count') + user's reels->sum('views_count')`
+- `$totalSubscribers = user->channel?->subscribers_count ?? 0`
+- `$totalWatchHours = $totalViews * 0.05` — estimated based on average 3min watch time
+- Progress bars compare against `gs('minimum_views')` (default 1000) and `gs('minimum_subscribe')` (default 100)
+
+**Step B: Earnings Computation**
+- `$totalEarnings = user->videos->flatMap->earnings->sum('estimated_revenue')` — aggregate of `VideoEarning` records
+- `$thisMonthEarnings = same filtered to whereMonth('date', now()->month())`
+- `$monthlyMembershipRevenue = sum of (active subscribers * price) for each membership tier`
+
+**Step C: Membership Tier CRUD**
+- `$memberships = $user->channel->memberships()->get()` — all tiers with subscriber count
+- **Create**: `StudioController@storeMembership` validates name/price/perks, creates `Membership` on channel
+- **Update**: `StudioController@updateMembership` validates ownership, updates name/price/perks, logs changes
+- **Delete**: `StudioController@destroyMembership` validates ownership, deletes, logs
+
+**View Rendering:**
+- Progress bars toward monetization goals (subs, views, watch hours)
+- Application button (initiate/applying/approved/rejected states)
+- Revenue gradient cards (Total, This Month, Membership)
+- Membership tier list with edit/delete modals (Alpine.js)
+- "Forge New Tier" creation form
+
+Monetization program management.
+
+**Features:**
+- **Road to Monetization**: Progress bars for Subscribers, Total Views, Watch Hours toward goals
+- **Application Section**: Conditional display based on status (Initiate/Applying/Approved/Rejected)
+- **Revenue Grid**: Total Earnings, This Month, Membership Revenue (gradient cards)
+- **Membership Tiers**:
+  - List existing tiers with name, price, perks, member avatars
+  - Edit/delete actions per tier
+  - "Forge New Tier" creation form (name, monthly fee, perks)
+  - Edit tier modal with pre-populated data
+- **JavaScript Functions**: `openEditModal()`, `closeEditModal()`, `confirmDelete()` with SweetAlert
+
+---
+
+## STEP 6 Studio Reels Manager (studio/reels.blade.php)
+**Route:** `GET /studio/reels` → `StudioController@reels` → `StudioService::reels()`
+**Layout:** `<x-app-layout>` (with studio sidebar)
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `StudioController@reels` (StudioController.php, line 125-129) actually redirects to `studio.videos?tab=reels` — the reels are managed within the Studio Videos page as a tab
+2. The dedicated reels view renders `Reel::where('user_id', auth()->id())->latest()->paginate(15)` with:
+   - 2-6 column responsive grid
+   - Thumbnail + status badge + duration overlay
+   - Title, views/likes/comments counts
+   - Edit/delete action buttons per reel
+   - Empty state with upload CTA
+   - Pagination links
+
+Creator's reel management page.
+
+**Features:**
+- Header with "New Reel" create button (purple-pink gradient)
+- Responsive grid (2-6 columns)
+- Reel cards: thumbnail, status badge, duration, title, views/likes/comments, edit/delete
+- Empty state with illustration and upload CTA
+- Pagination
+- Delete confirmation with browser `confirm()`
+
+---
+
+## STEP 7 Studio Reel Edit (studio/reel-edit.blade.php)
+**Route:** `GET /studio/reels/{reel}/edit` → `StudioController@editReel` → `StudioService::editReel()`
+**Layout:** `<x-app-layout>` (with studio sidebar)
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+
+**GET — Load Form:**
+1. `StudioController@editReel` (StudioController.php, line 131-136):
+   - Ownership check: `auth()->id() != $reel->user_id` → `abort(403)`
+   - `StudioService::editReel()` returns `compact('reel', 'categories', 'musicTracks')` — categories for dropdown, music tracks for reference
+
+**PUT — Update:**
+2. `StudioController@updateReel` → `StudioService::updateReel()` (StudioService.php, line 445-526):
+   - Validates: title (required, max 255), description (max 2200), thumbnail (image, max 5MB), visibility (required, 0/1), language
+   - Updates: title, description, visibility, language, category_id, allow_comments
+   - **Thumbnail**: Uploads new, replaces old if provided
+   - **Hashtags**: Deletes all old `ReelHashtag`, extracts from description `#tag` pattern + explicit input, creates new records
+   - **Mentions**: Deletes old description mentions, extracts `@username`, creates `ReelMention` for found users
+   - **Tags**: Deletes old `ReelTag`, creates new from input (falls back to hashtags if empty)
+   - **Bunny CDN sync**: If Bunny reel, calls API to sync title
+   - Returns `['success' => 'Reel updated successfully!']`, redirects to `studio.videos?tab=reels`
+
+**DELETE — Destroy:** `StudioController@destroyReel` → deletes video file, compressed file, thumbnail, Bunny CDN video, DB record
+
+Edit reel metadata.
+
+**Features:**
+- Back navigation link
+- Title, description, category, language inputs
+- Visibility and comments toggles
+- Thumbnail upload with current display
+- Hashtag chip input (Alpine.js)
+- Cancel and Save buttons
+- Delete confirmation
+
+---
+
+## STEP 8 Studio Duets (studio/duets.blade.php)
+**Route:** `GET /studio/duets` → `StudioController@duets` → `StudioService::duets()`
+**Layout:** `<x-app-layout>` (with studio sidebar)
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `StudioService::duets()` (StudioService.php, line 154-164):
+   - `Reel::where('user_id', $user->id)->where('is_duet', true)->withCount(['likes', 'comments'])->latest()->paginate(15)`
+   - Returns `['reels' => $duets, 'pageTitle' => 'Your Duets & Remixes']`
+2. View renders responsive grid of duet reels with:
+   - Thumbnail, optimizing overlay, duration
+   - Status badges (public/draft/private)
+   - Edit/delete action buttons
+   - Empty state with "Browse Reels to Duet" CTA button
+   - Pagination
+
+Manage duet/remix reels the creator has made.
+
+**Features:**
+- Mobile compact header with duet count + "Browse Reels to Duet" search button
+- Desktop full header with same button
+- Responsive grid of duet reels
+- Each card: thumbnail, optimizing overlay, duration, status badges, edit/delete
+- Empty state
+- Pagination
+
+---
+
+## STEP 9 Studio Saved Audios (studio/saved_audios.blade.php)
+**Route:** `GET /studio/saved-audios` → `StudioController@savedAudios` → `StudioService::savedAudios()`
+**Layout:** `<x-app-layout>` (with studio sidebar)
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `StudioService::savedAudios()` (StudioService.php, line 143-152):
+   - `SavedAudio::where('user_id', $user->id)->with('reelMusic')->latest()->paginate(15)`
+   - Returns `compact('savedAudios')`
+2. View renders dual layout:
+   - **Mobile**: Card grid with audio preview (play/pause via Alpine.js `<audio>` element, stops other audios on play)
+   - **Desktop**: Table with Track, Artist, Saved At, Actions columns
+3. **Toggle Save/Unsave**: AJAX POST removes the `SavedAudio` record with fade animation
+   - Desktop shows "Use Audio" link redirecting to reel creation with pre-selected audio
+4. Empty state with music icon and upload CTA
+5. Pagination
+
+Audio library page.
+
+**Features:**
+- Mobile card grid with audio preview (play/pause via Alpine.js)
+- Desktop table view (Track, Artist, Saved At, Actions)
+- Audio preview with `<audio>` element, stops other audios on play
+- "Use Audio" link and save/unsave toggle
+- AJAX save/unsave with fade animation
+- Empty state with music icon
+- Pagination
+
+---
+
+## STEP 10 Studio Purchased Videos (studio/purchased-videos.blade.php)
+**Route:** `GET /studio/purchased-videos` → `StudioController@purchasedVideos` → `StudioService::purchasedVideos()`
+**Layout:** `<x-app-layout>` (with studio sidebar)
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `StudioService::purchasedVideos()` (StudioService.php, line 558-562):
+   - `auth()->user()->purchasedVideos()->with('video.user')->latest()->paginate(15)`
+   - The `purchasedVideos()` relationship on User model queries `PurchasedVideo` records
+   - Eager loads the purchased `Video` and its owner (`user`) for display
+   - Returns `compact('purchasedVideos')` with `pageTitle = 'My Purchased Content'`
+2. View renders responsive 1-4 column grid with:
+   - Thumbnail with hover play overlay
+   - "Owned" badge on each card
+   - Title, creator avatar + name (clickable)
+   - Purchase date and order reference
+   - Scale/translate hover effects
+   - Empty state with "Explore Marketplace" CTA linking to video discovery
+   - Pagination
+
+**Purchase Flow:** `POST /videos/{video}/purchase` → `VideoController@purchase` → `VideoService::purchase()` (VideoService.php, line 585-646):
+1. Requires auth
+2. Creates `PurchasedVideo` record: user_id, video_id, owner_id (video uploader), price, trx (Razorpay payment ID)
+3. **Commission Split**: Calculates `$creatorPercent = gs('ppv_creator_commission_percent') ?? 60` — so creator gets 60%, admin gets 40%
+4. `VideoCommission` record created with full breakdown
+5. `$creator->balance += $creatorComm` — credits creator's wallet
+6. `Transaction` record created for creator with `trx_type = '+'` and `remark = 'video_ppv_commission'`
+7. Firebase push notification dispatched to creator
+8. Returns success JSON
+
+Library of premium content purchased from other creators.
+
+**Features:**
+- Responsive grid (1-4 columns)
+- Card: thumbnail with hover play, "Owned" badge, title, creator avatar + name, purchase date, order reference
+- Hover effects: scale, translate, shadow
+- Empty state with "Explore Marketplace" CTA
+- Pagination
+
+---
+
+# PART 8 — CLIENT DASHBOARD (USER AREA)
+
+## STEP 1 Wallet (client/wallet.blade.php)
+**Route:** `GET /user/wallet` → `UserController@wallet`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `UserController@wallet` → loads authenticated user with their wallet balance, payout configuration, and transaction summaries
+2. Queries `Transaction::where('user_id', $user->id)` for aggregate stats:
+   - Total income (sum of credit transactions)
+   - Total withdrawn (sum of withdrawal debits)
+   - Pending withdrawals count
+   - Total deposits sum
+3. Recent withdraw history via `WithdrawLog::where('user_id', $user->id)->latest()->take(10)`
+4. View renders: balance card (dark gradient), stats grid (4 gradient cards), withdraw history table (desktop) / stacked cards (mobile), status badges with color coding
+
+Financial hub showing balance, payout settings, earnings, and withdrawal history.
+
+**Features:**
+- **Balance Card**: Dark gradient, large balance, payout status (Configured/Setup Needed), "Get Paid" and "Add Funds" buttons
+- **Stats Grid**: Total Income, Withdrawn, Pending, Deposits (4 gradient cards)
+- **Withdraw History**: Desktop table + mobile stacked cards
+- Status badges: Approved (green), Pending (amber), Rejected (red)
+- Empty states for no history
+
+---
+
+## STEP 2 Transactions (client/transactions.blade.php)
+**Route:** `GET /user/transactions` → `UserController@transactions`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `UserController@transactions` → `TransactionService::index()`:
+   - Base: `Transaction::where('user_id', auth()->id())->latest()`
+   - Filters: `?trx=` (search by transaction ID), `?flow=` (credit/debit), `?remark=` (context segment like 'deposit', 'withdraw', 'purchase')
+   - Paginated with 20 per page
+2. View renders military-themed ledger:
+   - Filter panel with TRX search, flow direction, context segment
+   - Desktop table: Protocol ID (TRX), Timestamp, Net Displacement (colored red/green), Post-Protocol Balance, Event Signature
+   - Mobile: stacked card layout with contextual icons
+   - Empty state: "Ledger Silent"
+
+Full transaction ledger with military-style terminology.
+
+**Features:**
+- Header: "Transaction Protocol" with green status dot
+- **Filter Panel**: TRX search, Flow Direction (Credit/Debit), Context Segment, "Re-establish Feed"
+- **Desktop Table**: Protocol ID, Timestamp, Net Displacement (colored), Post-Protocol Balance, Event Signature
+- **Mobile Cards**: Stacked layout with icons
+- Empty state: "Ledger Silent"
+
+---
+
+## STEP 3 Earnings (client/earnings.blade.php)
+**Route:** `GET /user/earnings` → `UserController@earnings` (User/UserController.php, lines 77-100)
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow — Detailed:**
+1. **Settled Ad Revenue**: `$user->transactions()->where('remark', 'ads_revenue')->sum('amount')` — revenue already paid out and recorded in transactions
+2. **Video Sales**: `$user->transactions()->whereIn('remark', ['earn_from_video', 'video_ppv_commission'])->sum('amount')` — PPV purchases and direct video sales
+3. **Estimated Ad Revenue**: `VideoEarning::whereHas('video', fn($q) => $q->where('user_id', $user->id))->sum('estimated_revenue')` — live/uncounted ad impressions that haven't been settled yet
+4. **Total Earnings**: `$settledAdEarnings + $videoSalesEarnings + $estimatedAdEarnings`
+5. **Recent Transactions**: Last 20 transactions with eager-loaded video relation for display
+6. View renders: earnings cards (Total, Settled Ad Rev, Estimated Ad Rev, Video Sales, Subscriptions, Commission), recent earnings table with TRX ID/Date/Video/Amount/Post Balance/Details, empty states
+
+Revenue breakdown page.
+
+**Features:**
+- **Policy Alert**: Copyright strike warning with review link
+- **Earnings Cards**: Total Earnings, Settled Ad Rev, Estimated Ad Rev, Video Sales, Subscriptions, Commission
+- **Recent Earnings Table**: TRX ID, Date, Video, Amount, Post Balance, Details
+- Mobile card view
+- Empty states
+
+---
+
+## STEP 4 Notifications (client/notifications.blade.php)
+**Route:** `GET /notifications` → `HomeController@notifications`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `HomeService::getNotifications()` (HomeService.php, line 75-103):
+   - `$user->userNotifications()->latest()->take(20)->get()` — last 20 notifications from DB
+   - Maps each to: title, click_url (parsed to relative URL), created_at (diffForHumans)
+   - Also returns `unread_count` — `$user->userNotifications()->where('is_read', 0)->count()`
+2. **Mark All Read**: `POST /notifications/read-all` → `HomeController@readAllNotifications` → `$user->userNotifications()->where('is_read', 0)->update(['is_read' => 1])`
+3. View renders: dynamic header with unread badge, notification cards with contextual icons (wallet/payments/premium/shield), profile links, pagination, empty state "Quiet for now"
+
+Activity notification feed.
+
+**Features:**
+- Dynamic header with unread count badge
+- Notification cards with:
+  - Read status (left gradient bar for unread)
+  - Sender avatar or contextual icon
+  - Title, message, timestamp
+- Contextual icons: deposit (wallet), withdraw (payments), subscription (premium), security (shield)
+- Profile link per notification
+- Custom pagination styling
+- Empty state: "Quiet for now"
+
+---
+
+## STEP 5 Watch Later (client/watch-later.blade.php)
+**Route:** `GET /user/watch-later` → `UserController@watchLater`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Same logic as main Watch Later page (VideoService::watchLater()) but rendered in client dashboard layout
+2. Queries user's 'Watch Later' playlist, merges videos + reels, sorts by saved date DESC
+3. View renders responsive grid with play overlay, duration badge, channel avatar, floating close button (Android-style), empty state with "Discover Content" CTA, pagination
+
+User's saved-for-later videos.
+
+**Features:**
+- Responsive grid with play overlay
+- Duration badge, channel avatar, title, username, views
+- Android-style floating close button to remove
+- Hover effects
+- Empty state with "Discover Content" CTA
+- Pagination
+
+---
+
+## STEP 6 Deposit History (client/deposit/history.blade.php)
+**Route:** `GET /user/deposits` → `UserController@depositHistory`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Queries `Deposit::where('user_id', auth()->id())->latest()->paginate(20)` with gateway relation
+2. Supports `?trx=` search filter
+3. View renders: TRX search bar, desktop table (Gateway, TRX ID, Date, Amount, Charge, Status), mobile card view, status badges (Success/Pending/Rejected), "New Deposit" button linking to gateway selection, pagination
+
+History of all funds added to account.
+
+**Features:**
+- TRX ID search bar
+- Desktop table: Gateway, TRX ID, Date, Amount, Charge, Status
+- Status badges: Success (green), Pending (amber), Rejected (red)
+- Mobile card view
+- "New Deposit" button
+- Pagination
+
+---
+
+## STEP 7 Account Security (client/settings/security.blade.php)
+**Route:** `GET /user/security` → SecurityController or UserController
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. GET loads the security settings form — no special queries, purely Blade form
+2. **Password Change**: POST to password update endpoint with validation (current password must match hash, new password >= 8 chars, confirmed)
+3. **2FA Section**: Checks if `auth()->user()->two_factor_secret` is set (Google Authenticator)
+   - If not set → shows "Enable" link with QR code generation
+   - If set → shows "Disable" form requiring 2FA code for verification
+4. View renders both sections with dark mode styling, security explanation text
+
+Password and two-factor authentication management.
+
+**Features:**
+- **Password Change**: Current, New, Confirm password fields with submit
+- **2FA Section**: Google Authenticator integration
+  - Enabled/Disabled status badge
+  - Enable link or Disable form (with auth code input)
+  - Security explanation text
+- Dark mode
+
+---
+
+## STEP 8 Support Tickets (client/ticket/)
+
+### Ticket Index (client/ticket/index.blade.php)
+**Route:** `GET /user/tickets` → `TicketController@index` → `TicketService::index()`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `TicketService::index()`: `Ticket::where('user_id', auth()->id())->latest()->paginate(15)` with status filter support (`?status=pending|answered|in_progress|closed|rejected`)
+2. Each ticket includes: ticket number (auto-generated), subject, priority (Low/Medium/High), status badge with color, relative time
+3. **Open Hub Modal**: Alpine.js component that:
+   - Fetches messages via AJAX `GET /user/tickets/{id}/messages`
+   - Displays conversation thread in modal
+   - Allows inline reply with file attachments (images, max 4)
+   - Auto-scrolls to latest message
+4. View renders: status filter tabs with counts, ticket cards, Open Hub trigger, direct "View" link per ticket, empty state with "Start Conversation" CTA, pagination
+
+Support desk listing all user tickets.
+
+**Features:**
+- Status filter tabs: All, Pending, Answered, In Progress, Closed, Rejected (with counts)
+- Ticket cards: ticket #, subject, priority, status indicator, time
+- "Open Hub" interactive modal for live conversation (Alpine.js)
+  - Fetch messages via AJAX
+  - Send reply with file attachments (images only, max 4)
+  - Auto-scroll to bottom
+- Direct "View" link per ticket
+- Empty state with "Start Conversation" CTA
+- Pagination
+
+### Ticket Create (client/ticket/create.blade.php)
+**Route:** `GET /user/tickets/create` → `TicketController@create`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. GET loads empty form with custom Blade components (`x-input`, `x-select`, `x-textarea`)
+2. POST validates: subject (required), priority (required, in:Low/Medium/High), message (required, max 2000), attachments (nullable, max 5 files, images only)
+3. `TicketService::store()`: Creates `Ticket` record + optional `TicketAttachment` records for each file
+4. Auto-generates ticket number from ID with prefix
+5. Redirects to ticket index with success message, response time notice (2-4 hours)
+
+Create new support ticket.
+
+**Features:**
+- Form: Subject, Priority (Low/Medium/High), Initial Status, Message
+- File attachments zone (drag & drop, max 5 files)
+- Uses custom Blade components: `x-input`, `x-select`, `x-textarea`
+- Alpine.js live file count display
+- Back navigation
+- Response time notice (2-4 hours)
+
+### Ticket View (client/ticket/view.blade.php)
+**Route:** `GET /user/tickets/{id}` → `TicketController@show`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `TicketController@show`: Loads `Ticket::with('messages.user', 'messages.attachments')->findOrFail($id)` with ownership check
+2. Messages displayed as vertical timeline with dots:
+   - Support agent messages styled differently from user messages
+   - Each shows avatar + name + timestamp
+   - Attachments shown as image previews with download links
+3. **Reply flow**: If ticket is open, reply form shown with file upload
+   - POST creates `TicketMessage` with content + optional attachments
+   - Updates ticket status to 'in_progress' or 'answered'
+4. **Close button**: POST changes status to 'closed'
+5. Sidebar shows: ticket #, priority level, created date, last update time
+
+Single ticket detail view with message thread.
+
+**Features:**
+- Ticket # and subject header
+- Status badges and close ticket button
+- Reply form with file upload (when ticket open)
+- Closed ticket notice when resolved
+- **Message Timeline**: Vertical timeline with dots
+  - Differentiates support agent vs user messages
+  - Avatar + name + timestamp per message
+  - Attachment display with image previews and download links
+- **Sidebar Analytics**: Priority level, Created date, Last update
+
+---
+
+## STEP 9 Plans & Subscriptions (client/plans/)
+
+### Plans Index (client/plans/index.blade.php)
+**Route:** `GET /user/plans` → `PlanController@index`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `PlanController@index`: Fetches all active `Plan` records with their features, pricing, and duration
+2. Also loads `$user->purchasedPlans()->where('expired_date', '>', now())` for active subscription display
+3. If active subscription exists, shows progress bar with days remaining
+4. View renders: responsive grid of plan cards (2-3 columns), each with name/icon/duration/price/features list, "Most Popular" badge on second plan, subscribe button with Razorpay integration, policy footer links
+5. **Subscribe**: Razorpay checkout generates order, on success POST to payment verification endpoint
+6. **Verification**: Validates Razorpay signature, creates `UserPlan` record, credits plan benefits
+
+Browse available subscription plans.
+
+**Features:**
+- Active subscription progress bar (if exists) with days remaining
+- Plan cards in responsive grid (2-3 columns)
+- Each card: name, icon, duration, price, features list with check/cancel icons
+- "Most Popular" badge on second plan
+- Subscribe button with Razorpay integration
+- Payment verification flow
+- Policy footer links (Privacy, Terms, Support)
+
+### Plans Purchased (client/plans/purchased.blade.php)
+**Route:** `GET /user/plans/purchased` → `PlanController@purchased`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `$user->purchasedPlans()->latest()->paginate(15)` with eager-loaded plan relation
+2. Each record checked: `$purchase->expired_date > now()` for active/expired badge
+3. View renders: grid cards with plan name, active badge (green) / expired badge (red), purchase date, amount paid, duration, "Browse Plans" CTA when empty
+
+### Plans Show (client/plans/show.blade.php)
+**Route:** `GET /user/plans/{id}` → `PlanController@show`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Loads single `Plan` record with features (JSON decoded), checks if user already has active subscription
+2. View renders: plan details card (name, price, duration, features list with check/cancel icons), subscribe button with Razorpay
+
+---
+
+## STEP 10 Playlists (client/playlists/)
+
+### Sell Playlist (client/playlists/sell.blade.php)
+**Route:** `GET /user/playlists/sell` → `PlaylistController@sell`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Form loads user's videos for multi-select, shows pricing configuration
+2. POST creates a sellable playlist with `price`, `is_sellable = true`, video selections via pivot table
+3. View renders: playlist creation form with name/description, price input, video selection grid, terms/visibility toggles
+
+### Purchased Playlists (client/playlists/purchased.blade.php)
+**Route:** `GET /user/playlists/purchased` → `PlaylistController@purchased`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Queries `PurchasedPlaylist::where('user_id', auth()->id())->with('playlist.user.channel')->latest()->paginate(15)`
+2. Each shows: thumbnail stack, play button, video count, creator info, expiry badge
+3. Empty state with marketplace CTA
+
+---
+
+## STEP 11 Videos (client/videos/)
+
+### Create Video (client/videos/create.blade.php)
+**Route:** `GET /user/videos/create` → `VideoController@create`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Same `VideoService::create()` as main upload page — channel check, categories, premium access
+2. Redirects to channel creation if no channel exists
+3. Alternative upload form from client dashboard (same logic, different layout)
+
+### Purchased Videos (client/videos/purchased.blade.php)
+**Route:** `GET /user/videos/purchased` → `UserController@purchasedVideos`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `PurchasedVideo::where('user_id', auth()->id())->with('video.user.channel')->latest()->paginate(15)`
+2. Grid with "Owned" badge, purchase date, order reference, creator info, empty state with marketplace link
+
+---
+
+## STEP 12 Withdrawals (client/withdraw/)
+
+### Methods (client/withdraw/methods.blade.php)
+**Route:** `GET /user/withdraw` → `WithdrawController@methods`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Loads user's saved payout methods (`WithdrawMethod` records) and available gateway methods
+2. Supports: Bank Transfer (account number/IFSC), PayPal (email), UPI (ID)
+3. View renders: list of existing methods with edit/delete, "Add New Method" form, min/max withdrawal limits per method
+
+**Features:**
+- Available payout methods (Bank Transfer, PayPal, etc.)
+- Add new method form
+- Existing methods with edit/delete
+- Min/Max withdrawal limits
+
+### Preview (client/withdraw/preview.blade.php)
+**Route:** `GET /user/withdraw/preview` → `WithdrawController@preview`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. GET shows form with amount input and selected method display
+2. Calculates fee based on gateway configuration (percentage + fixed fee)
+3. Shows net amount after fee deduction
+4. POST confirms withdrawal: creates `Withdrawal` record with `pending` status, deducts from user balance, creates `Transaction` record with `trx_type = '-'`
+
+### Log (client/withdraw/log.blade.php)
+**Route:** `GET /user/withdraw/log` → `WithdrawController@log`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `Withdrawal::where('user_id', auth()->id())->latest()->paginate(20)`
+2. View renders: desktop table (Date, Method, Amount, Status, TRX ID), mobile card view, status badges with color coding (Approved=green, Pending=amber, Rejected=red), pagination
+
+---
+
+## STEP 13 KYC Verification (client/kyc/)
+
+### Form (client/kyc/form.blade.php)
+**Route:** `GET /user/kyc` → `UserController@kycForm`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. GET loads form with document type selection dropdown (Aadhaar/PAN/Passport/Driving License)
+2. POST validates: identity document (required, image, max 2MB), selfie/photo, personal info, document number, address proof
+3. Uploads files via `fileUploader()`, creates/updates `KycRecord` with `status = 'pending'`
+4. If already submitted → shows current status (Pending/Approved/Rejected with reason)
+5. If rejected → shows resubmit form with rejection reason note
+
+### Info (client/kyc/info.blade.php)
+**Route:** `GET /user/kyc/info` → `UserController@kycInfo`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Loads latest `KycRecord` for user and returns status + submitted document info
+2. View renders: current verification status card, submitted documents list, rejection reason (if applicable), resubmit button
+
+### Bank Edit (client/kyc/bank_edit.blade.php)
+**Route:** `GET /user/kyc/bank/edit` → `UserController@bankEdit`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. GET loads existing bank details or empty form
+2. POST validates: bank_name (required), account_number (required, numeric), confirm_account_number (must match), ifsc_code (required), account_holder_name (required)
+3. Saves to `User` meta or dedicated `BankAccount` model
+
+---
+
+## STEP 14 Monetization Settings (client/monetization/index.blade.php)
+**Route:** `GET /user/monetization` → `UserController@monetizationSetting` (UserController.php, lines 30-47)
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Calculates eligibility: `$totalViews = Video::where('user_id', $user->id)->sum('views_count') + Reel::where('user_id', $user->id)->sum('views_count')`
+2. Ensures channel exists: `Channel::firstOrCreate(['user_id' => $user->id])`
+3. `$totalSubscriber = Subscriber::where('channel_id', $channel->id)->count()`
+4. Reads thresholds from settings: `gs('minimum_views') ?? 1000`, `gs('minimum_subscribe') ?? 100`
+5. Calculates progress percentages: `($totalViews / $minViews) * 100`, `($totalSubscriber / $minSubs) * 100`
+6. **Apply**: `UserController@applyForMonetization` (line 49-75):
+   - Checks thresholds met → error if not
+   - Sets `$user->monetization_status = Status::MONETIZATION_APPLYING`
+   - Admin reviews and approves/rejects
+7. View renders: eligibility progress bars, apply button (conditional on status), revenue share info, payment threshold settings
+
+**Features:**
+- Monetization eligibility check
+- Apply for monetization program
+- Current status display
+- Revenue share information
+- Payment threshold settings
+
+---
+
+## STEP 15 Client Channel Create (client/channels/create.blade.php)
+**Route:** `GET /user/channels/create` → `UserController@createChannel`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Same `ChannelService::create()` as main channel creation — checks existing channel, returns categories
+2. POST creates channel via `ChannelService::store()` with avatar/cover upload, handle uniqueness validation
+3. Alternative entry point from client dashboard (same logic, different route prefix `/user/channels`)
+
+---
+
+## STEP 16 Client Studio (client/studio/)
+
+### Dashboard (client/studio/dashboard.blade.php)
+**Route:** `GET /user/studio` → `UserController@studioDashboard`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Mirrors main Studio dashboard logic (`StudioService::dashboard()`) — aggregate stats, growth calculations, recent uploads, moderation reports
+2. Same queries but rendered in client dashboard layout theme
+
+### Videos (client/studio/videos.blade.php)
+**Route:** `GET /user/studio/videos` → `UserController@studioVideos`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `auth()->user()->videos()->latest()->paginate(15)` with status badges
+2. Edit/delete actions with ownership verification, upload new button
+3. Same data as main studio videos but in client layout
+
+### Edit (client/studio/edit.blade.php)
+**Route:** `GET /user/studio/videos/{id}/edit` → `UserController@editVideo`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `Video::findOrFail($id)` with `auth()->id() == $video->user_id` check
+2. Categories loaded for dropdown
+3. POST updates metadata, thumbnail, visibility via same `StudioService::update()` logic
+
+### Monetization (client/studio/monetization.blade.php)
+**Route:** `GET /user/studio/monetization` → `UserController@studioMonetization`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Same `StudioService::monetization()` — earnings, memberships, eligibility
+2. Revenue stats, membership tier CRUD, apply for monetization button
+
+---
+
+## STEP 17 OTT Plans (client/ott_plans/index.blade.php)
+**Route:** `GET /user/ott-plans` → `OttPlanController@index`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `OttPlanController@index`: Fetches all active OTT plans with pricing, duration, content access info
+2. Checks if user has active OTT subscription for "Current Plan" display
+3. **Subscribe**: `OTTPlanController@buy` creates Razorpay order, `@verify` validates payment and creates `UserOttPlan` subscription record with start/end dates
+4. View renders: OTT plan cards with subscribe button, active plan banner if subscribed, browse all plans CTA
+
+---
+
+## STEP 18 Ad Settings (client/ads/setting.blade.php)
+**Route:** `GET /user/ads/settings` → `UserController@adSettings`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Loads user's current ad configuration (ad_placement, ad_type, ad_frequency) from user meta or settings model
+2. POST saves: placement preferences (pre-roll/mid-roll/post-roll), ad frequency per video, revenue share display (read-only from system settings)
+3. View renders: toggle switches for ad types, frequency slider, placement radio group, revenue share info card
+
+---
+
+## STEP 19 Advertiser Dashboard (client/advertiser/)
+
+### Dashboard (client/advertiser/dashboard.blade.php)
+**Route:** `GET /user/advertiser` → `AdvertiserController@dashboard`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Aggregates campaign stats: total campaigns, active count, impressions sum, clicks sum, total spend
+2. Wallet balance from user balance
+3. View renders: performance summary cards, quick create campaign button, recent campaigns list
+
+### Ad Create (client/advertiser/ad/create.blade.php)
+**Route:** `GET /user/advertiser/ads/create` → `AdvertiserController@createAd`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Loads user's campaigns for dropdown selection
+2. Form: campaign_id, ad_type (video/banner/sponsored), target_audience, budget, bid_amount, creative upload (video/image), schedule start/end dates, targeting options (category, demographics)
+3. POST creates `Ad` record with `status = 'draft'` or `'active'`
+
+### Ad List (client/advertiser/ad/list.blade.php)
+**Route:** `GET /user/advertiser/ads` → `AdvertiserController@listAds`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `Ad::where('user_id', auth()->id())->with('campaign')->latest()->paginate(15)`
+2. Table: Ad name, type, status badge (Active/Paused/Completed/Draft), impressions, clicks, spend
+3. Actions: edit, pause/resume, delete with confirmation
+
+### Ad Analytics (client/advertiser/ad/analytics.blade.php)
+**Route:** `GET /user/advertiser/ads/{id}/analytics` → `AdvertiserController@adAnalytics`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Loads specific `Ad` with ownership check
+2. Queries `AdAnalytics` or `AdImpression` models for chart data
+3. View renders: impressions over time chart (ApexCharts), CTR metric card, spend breakdown, audience demographics, conversion tracking data, export report button
+- Spend breakdown
+- Audience demographics
+- Conversion tracking
+- Export report
+
+### Ad Advance List (client/advertiser/ad/advance_list.blade.php)
+**Route:** `GET /user/advertiser/ads/advance`
+**Layout:** `<x-app-layout>`
+
+Advanced ad listing with filtering.
+
+**Features:**
+- Date range filter
+- Status filter
+- Campaign filter
+- Bulk actions
+- Export selected
+
+### Campaign Index (client/advertiser/campaign/index.blade.php)
+**Route:** `GET /user/advertiser/campaigns`
+**Layout:** `<x-app-layout>`
+
+Campaign management.
+
+**Features:**
+- Campaign cards: name, budget, status, performance
+- Create new campaign button
+- Edit/archive actions
+- Budget tracking
+
+### Payment History (client/advertiser/payment_history.blade.php)
+**Route:** `GET /user/advertiser/payments`
+**Layout:** `<x-app-layout>`
+
+Ad spend payment history.
+
+**Features:**
+- Payment records: date, amount, method, campaign
+- Status badges
+- Invoice download
+- Payment method management
+
+---
+
+# PART 9 — MARKETPLACE (CREATOR NETWORK)
+
+## STEP 1 Marketplace Home (marketplace/index.blade.php)
+**Route:** `GET /marketplace` → `MarketPlaceController@index` (app/Http/Controllers/MarketPlaceController.php, line 26-100)
+**Layout:** `@extends('layouts.app')`
+
+**Controller Logic Flow — Inline (no Service layer, logic in controller):**
+
+**Data Assembly (lines 33-68):**
+1. **Featured Creators Query**: `MarketPlace::where('status', 1)->where(function($q) { $q->where('is_featured', true)->orWhereHas('subscriptions.plan', fn($pq) => $pq->where('is_featured_plan', true)); })` — profiles that are either manually featured OR have an active featured subscription plan
+2. **Regular Profiles Query**: `MarketPlace::where('status', 1)->where('is_featured', false)` — non-featured profiles
+3. Both queries apply optional filters:
+   - `?type=` (40+ roles: Actor, Director, Producer, etc.) → `where('type', $type)`
+   - `?location=` (Indian states) → `where('location', $location)`
+   - `?search=` → `where('name', 'LIKE', "%$search%")` OR type/location/skills/email/business_name
+4. Featured takes 8 random, regular takes 24 random
+5. **Session Auth**: If `Session::has('marketplace_user_id')`, loads talent profile + active subscription for dashboard link in hero
+6. **Gallery**: `MarketGallery::whereHas('marketplace', fn($q) => $q->where('status', 1))->inRandomOrder()->take(8)->get()`
+7. **Stats**: `MarketPlace::active()->count()`, featured count, `MarketService::count()`
+8. **Plans**: All active `MarketSubscription` plans with features
+9. If AJAX request → returns JSON with featured + regular data
+
+The public-facing entry point to the Profile Marketplace — a film industry / creator networking platform.
+
+**What the page contains:**
+
+1. **Hero Section** — Gradient background with:
+   - "Your Creative Journey Starts Here" headline
+   - Stats bar: Profiles Active, Handpicked, Services
+   - Authentication-aware action buttons:
+     - Logged out: "Create Profile" + "Profile Login"
+     - Logged in without profile: "Create Profile"
+     - Logged in with profile: "Dashboard" dropdown
+
+2. **Search & Filter Bar** — Form with:
+   - Role type dropdown (40+ film industry roles: Actor, Director, Producer, Cinematographer, etc.)
+   - Location dropdown (all Indian states)
+   - Search button with search icon
+
+3. **Featured Creators** — Infinite auto-scroll carousel using Alpine.js:
+   - Drag-to-scroll support
+   - Auto-pause on hover
+   - Uses `marketplace.partials.creator_card`
+
+4. **All Profiles Grid** — Uses `marketplace.partials.creator_card`
+
+5. **Gallery Showcase** — Image grid with SweetAlert2 lightbox on click
+
+6. **Plans Section** — Silver, Gold, Platinum, Diamond Pro plan cards with features and subscribe buttons
+
+7. **Features Bar** — 24/7 Support, Trusted Platform, Secure Payment, Verified Profiles
+
+---
+
+## STEP 2 Creator Dashboard (marketplace/dashboard.blade.php)
+**Route:** `GET /marketplace/dashboard` → `MarketPlaceController@dashboard`
+**Layout:** `@extends('layouts.app')`
+**Middleware:** `MarketplaceAuth` (session-based auth guard)
+
+**Controller Logic Flow:**
+1. Loads the `MarketPlace` record for the session-authenticated user (`MarketPlace::find(Session::get('marketplace_user_id'))`)
+2. Eager-loads all relations: gallery images, portfolio items, services, messages, contacts, subscription
+3. Returns view with the talent profile + all related data for the tabs
+4. View renders single-page application (SPA-like) with Alpine.js tab switching:
+   - **Profile tab**: Form pre-populated with existing data, avatar/cover upload via Cropper.js
+   - **Gallery tab**: Image grid with upload/delete via AJAX
+   - **Portfolio tab**: CRUD with multi-image upload, inline edit/delete
+   - **Services tab**: Service cards with create/edit/delete modals
+   - **Messages tab**: Chat interface with contact list, message CRUD
+   - **Contacts tab**: Client inquiry list
+   - **Plans tab**: Subscription upgrade with Razorpay
+   - **Transactions tab**: Payment history with invoice modal
+
+Full-screen tabbed interface for creators to manage their marketplace presence.
+
+**What the page contains:**
+
+1. **Desktop Sidebar** — Navigation: Dashboard, Profile, Gallery, Portfolio, Services, Messages, Contact List, Plans, Transactions
+
+2. **Mobile Drawer** — Slide-out navigation via x-teleport
+
+3. **Header** — Sticky with mobile menu button, profile avatar dropdown (Live Profile, Account Settings, Sign Out)
+
+4. **Tab Content** — Dynamically includes section partials:
+   - `sections.dashboard`: Welcome card, subscription status, metric cards (Assets, Services, Inquiries, Network)
+   - `sections.profile`: Full profile editor with avatar/cover upload, personal details, professional identity, performance metrics, business presence, social links, bio
+   - `sections.gallery`: Image upload grid with inline edit/delete
+   - `sections.portfolio`: Portfolio CRUD with list/create/edit views, multi-image upload
+   - `sections.services`: Service management with create/edit/delete
+   - `sections.messages`: Full messaging interface with contact list, chat bubbles, edit/delete
+   - `sections.contacts`: Client inquiries list
+   - `sections.plans`: Subscription management with Razorpay
+   - `sections.transactions`: Payment history with invoice modal
+
+5. **Alpine.js State** — reactive `tab`, `sidebarOpen`, `unreadCount`, `activeChat`, `editService`
+
+6. **Global Modals**: Edit Service modal, Transaction invoice modal
+
+---
+
+## STEP 3 All Profiles (marketplace/all.blade.php)
+**Route:** `GET /marketplace/all` → `MarketPlaceController@all`
+**Layout:** `@extends('layouts.app')`
+
+**Controller Logic Flow:**
+1. `MarketPlaceController@all`: Queries `MarketPlace::where('status', 1)` with optional `?type=` and `?search=` filters
+2. Returns paginated results — supports AJAX responses for Alpine.js filter
+3. **Frontend Logic** (Alpine.js):
+   - `type` dropdown triggers AJAX fetch with `?type=X`
+   - `search` input is debounced (300ms) then triggers AJAX
+   - On response: swaps HTML content, updates `history.pushState` for URL-based state
+   - Loading overlay: blurs + grayscales the grid during fetch
+   - Reset filters button clears all params and re-fetches
+
+AJAX-powered profile browsing with filters.
+
+**Features:**
+- Alpine.js filter state: type dropdown (Featured/All/Specific Roles), search input (debounced)
+- AJAX fetches filtered profiles and swaps HTML
+- Loading overlay (blur + grayscale)
+- Reset filters button
+- history.pushState for URL-based state
+- Pagination container
+
+---
+
+## STEP 4 Featured & Gallery Pages
+
+### Featured (marketplace/featured.blade.php)
+**Route:** `GET /marketplace/featured` → `MarketPlaceController@featured`
+
+**Controller Logic Flow:**
+1. `MarketPlace::where('status', 1)->where('is_featured', true)->orWhereHas('subscriptions.plan', fn($q) => $q->where('is_featured_plan', true))->paginate(24)`
+2. Profiles that are either manually featured OR have an active featured subscription plan
+3. Grid layout with pagination, each card shows: avatar, name, role, location
+
+### Gallery (marketplace/gallery.blade.php)
+**Route:** `GET /marketplace/gallery` → `MarketPlaceController@gallery`
+
+**Controller Logic Flow:**
+1. `MarketGallery::whereHas('marketplace', fn($q) => $q->where('status', 1))->latest()->paginate(24)`
+2. Loads all gallery images from all active marketplace profiles
+3. View renders: grid with hover zoom effects, avatar + name + role overlay per image, links to creator portfolio page, pagination with custom CSS
+
+**Features:**
+- Grid with hover zoom effects
+- Links to creator portfolio
+- Avatar + name + type overlay per item
+- Pagination with custom CSS
+
+---
+
+## STEP 5 Public Creator Portfolio (marketplace/portfolio.blade.php)
+**Route:** `GET /marketplace/profile/{slug}` or `GET /m/{slug}` → `MarketPlaceController@portfolio`
+**Layout:** `@extends('layouts.app')`
+
+**Controller Logic Flow:**
+
+1. **Route** → Two URLs:
+   - `GET /marketplace/profile/{slug}` (line 556)
+   - `GET /m/{slug}` (line 577) — short URL alias
+
+2. **`MarketPlaceController@portfolio`** (approximately line 300-500 of MarketPlaceController):
+   - Loads `MarketPlace::where('slug', $slug)->orWhere('id', $slug)->firstOrFail()` with all relations: gallery, portfolio items, services, reviews
+   - **Subscription Gating**: Checks if current user owns the profile OR has an active subscription with `can_view_contact = true`
+   - `$canView = (Session::get('marketplace_user_id') == $profile->id) || ($activeSubscription && $activeSubscription->plan->can_view_contact)`
+   - If `$canView` is false, contact info (email, phone) and WhatsApp service links are hidden behind premium gate
+   - Returns `compact('profile', 'gallery', 'portfolio', 'services', 'reviews', 'ratingStats', 'canView')`
+
+3. **Rating System**: Users can submit star ratings via AJAX POST — creates/updates `MarketReview` with rating 1-5
+   - View shows: average rating, breakdown bars (5/4/3/2/1 stars with percentage), user's existing rating (if any)
+
+4. **Message Modal**: Full chat interface within the page
+   - Alpine.js opens/closes modal
+   - Messages stored in `MarketMessage` model
+   - Send/edit/delete message functionality via AJAX
+
+5. **View Rendering** (~990 lines — the most complex view):
+   - Cover photo with click-to-enlarge lightbox (SweetAlert2)
+   - Profile header with avatar, name, role badge, location, experience years
+   - Action buttons: Message (auth check), Share (premium-gated)
+   - Interactive star rating with hover highlight + AJAX submission
+   - 4 content tabs (About, Gallery, Portfolio, Services) toggled via Alpine.js
+   - Desktop sidebar with contact info (premium-gated), availability, social links
+   - Portfolio image slider with prev/next navigation + progress bar
+
+The most complex marketplace view (~990 lines) — a full creator portfolio page.
+
+---
+
+## STEP 6 Preview / Login / Register
+
+### Preview (marketplace/preview.blade.php)
+**Route:** `GET /marketplace/plan/preview/{id}` → `MarketPlaceController@previewPlan`
+
+**Controller Logic Flow:**
+1. Loads `MarketSubscriptionPlan::findOrFail($id)` with pricing and feature details
+2. Shows confirmation page: plan name, price, duration, feature list
+3. Form posts to `marketplace.plan.buy` which creates Razorpay order
+
+### Login (marketplace/login.blade.php)
+**Route:** `GET /marketplace/login` → `MarketPlaceController@showLoginForm`
+
+**Controller Logic Flow:**
+1. GET shows login form (email + password)
+2. POST validates credentials against `MarketPlace` model (separate from User model)
+3. On success: `Session::put('marketplace_user_id', $talent->id)` — pure session-based auth, no Laravel auth guard
+4. On failure: returns with error notification, throttled at 5 attempts per minute
+
+### Register (marketplace/register.blade.php)
+**Route:** `GET /marketplace/register` → `MarketPlaceController@showRegistrationForm`
+
+**Controller Logic Flow:**
+1. 3-step wizard with Alpine.js step management (`x-data="{ step: 1, formData: {} }"`)
+2. **Step 1** (Personal Info): Validates name, email (with AJAX check against MarketPlace model), password (strength checklist via JS), confirm password, phone
+3. **Step 2** (Professional Profile): Role selector (40+ film industry roles), experience months, bio, skills manager (chip add/remove), portfolio/website URLs
+4. **Step 3** (Finalize): Business name, business type (individual/company/agency), terms agreement via modal (loaded from `/marketplace/terms` via AJAX)
+5. POST creates `MarketPlace` record with hashed password
+6. On success: Session login + redirect to dashboard
+7. Sends welcome email via `MarketplaceWelcomeMail` Mailable
+
+---
+
+## STEP 7 Terms Page (marketplace/terms.blade.php)
+**Route:** `GET /marketplace/terms` → Closure (routes/web.php:557-573)
+
+**Controller Logic:**
+1. Closure-defined route (no controller class)
+2. Checks `Frontend::where('data_keys', 'marketplace_terms.content')->first()`
+3. **Auto-seed**: If no terms found, creates default terms content (introduction, role-specific guidelines for Actors/Influencers and Investors/Producers, general terms of use, payment & service fees)
+4. Returns view with styled prose + dark mode
+
+---
+
+# PART 10 — PAYMENTS & PLANS
+
+## STEP 1 Deposit Gateway Selection (payment/deposit.blade.php)
+**Route:** `GET /user/deposit` → `UserController@deposit`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. Loads all active payment gateways where `status = 1` from `Gateway` model
+2. Each gateway has: name, supported currencies, min/max deposit limits, fixed charge + percentage charge
+3. View renders: responsive grid of gateway cards with icon, name, limit display, security footer (SSL verified, encrypted, protected)
+4. Form POSTs to `user.deposit.insert` which creates a `Deposit` record and redirects to gateway-specific checkout
+
+---
+
+## STEP 2 Razorpay Checkout (payment/Razorpay.blade.php)
+**Route:** `GET /user/deposit/razorpay` → `Gateway\RazorpayController@checkout`
+**Layout:** Minimal layout
+
+**Controller Logic Flow:**
+1. Creates a Razorpay Order via Razorpay API: `amount = deposit_amount * 100` (paise), `currency = 'INR'`, `receipt = deposit_trx`
+2. Passes order_id, amount, and API key to view
+3. View renders: glassmorphism dark card with payable amount + credit expected + security notice
+4. **Client-side**: Razorpay checkout script opens on button click → on success, POST to verification endpoint with `razorpay_payment_id`, `razorpay_order_id`, `razorpay_signature`
+5. **Verification**: Validates signature using HMAC SHA256 with secret key → updates Deposit status to 'success' → credits user balance → creates Transaction record
+
+---
+
+## STEP 3 Plans Index (plans/index.blade.php)
+**Route:** `GET /plans` → `PlanController@index`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `Plan::latest()->get()` — all platform plans with pricing and features
+2. Checks user's active purchases: `auth()->user()->purchasedPlans()->where('expired_date', '>', now())`
+3. View renders: header with "Choose Your Plan" branding, plan cards with price/duration/features/Subscribe button, active subscription banner
+4. **Subscribe**: Razorpay order + payment verification + `UserPlan` record creation
+
+---
+
+## STEP 4 Plan Sell History (plans/sell.blade.php)
+**Route:** `GET /plans/sell` → `PlanController@sellHistory`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. For platform admins: shows `UserPlan::with('user', 'plan')->latest()->paginate(20)`
+2. View renders: table with Subscriber name, Plan name, Revenue amount, Status (completed badge), empty state
+
+---
+
+## STEP 5 Purchased Plans (plans/purchased.blade.php)
+**Route:** `GET /plans/purchased` → `PlanController@purchased`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+1. `auth()->user()->purchasedPlans()->with('plan')->latest()->paginate(15)` — all user's plan purchases
+2. Splits into OTT plans (where plan type is OTT) and Creator plans (where plan type is creator)
+3. Tab switcher: green tab for OTT, rose tab for Creator
+4. Each entry: status line, active (green) / expired (red) badge, purchase + expiry dates, days remaining, amount paid, invoice button
+5. "Expiring Soon" badge when `days_left <= 7`
+6. Empty state with "Browse Plans" CTA
+
+---
+
+## STEP 6 Plan Invoice (plans/invoice.blade.php)
+**Route:** `GET /plans/invoice/{id}` → `PlanController@invoice`
+**Layout:** `<x-app-layout>`
+
+**Controller Logic Flow:**
+1. `UserPlan::with('user', 'plan', 'transaction')->findOrFail($id)` with ownership check
+2. Returns printable receipt data: invoice number, site name, date, billed-to info (name/email/phone), transaction details (status/TRX ID/method), plan table (description/duration/amount/total)
+3. View renders with `window.print()` CSS for clean printing, dark mode support
+
+---
+
+## STEP 7 Profile Edit (profile/edit.blade.php)
+**Route:** `GET /profile/edit` → `ProfileController@edit` → `ProfileService::edit()`
+**Layout:** `<x-app-layout>`
+**Middleware:** `auth`
+
+**Controller Logic Flow:**
+
+1. **GET**: Loads authenticated user with their channel and profile data
+2. **POST** (PATCH `/profile`): Validates:
+   - first_name (required), last_name (required)
+   - username (required, min 6 chars, regex: lowercase/numbers/underscore only, unique with AJAX availability check)
+   - location (nullable), bio (nullable)
+   - avatar (image, via openCropper()), cover (image)
+   - social_links (Facebook, Twitter/X, Instagram, YouTube)
+3. Updates User model + Channel model (for avatars)
+4. **AJAX Username Check**: `ProfileController@checkUsername` validates uniqueness in real-time
+5. View renders: cover photo with edit FAB, avatar with camera upload overlay, identity form, social connections with SVG icons, sticky submit with loading state, toast notifications via SweetAlert2
+
+**Features:**
+- Cover photo with edit FAB button
+- Avatar with camera upload overlay
+- Account Identity: first name, last name, username (AJAX availability validation), location, bio
+- Social Connections: Facebook, Twitter/X, Instagram, YouTube with SVG icons
+- Username validation: >= 6 chars, no spaces, lowercase/numbers/underscore only
+- Sticky submit with loading state
+- Toast notifications via SweetAlert2
+- Image upload via external `openCropper()` function
+
+---
+
+# PART 11 — PARTIALS & REUSABLE COMPONENTS
+
+## STEP 1 Video Card (partials/video_card.blade.php)
+**Used in:** Homepage, Trending, Search, Category pages, History, Liked, Watch Later, Studio videos
+
+**Data Flow:**
+- Renders a single `$video` object (Video model instance with relations: channel, category, user)
+- Passed from controller via `compact()` which calls VideoService methods like `VideoService::getVideosData()` (homepage), `VideoService::getTrendingVideos()` (trending), `VideoService::searchVideos()` (search)
+- `$watchlisted` boolean is pre-set in parent views via User's `watchLater()` relationship check
+- `$encoded` status checked against `$video->encoded === 1` for hover-preview capability
+- Alpine.js `$data` initialized per card: `hover`, `progress`, `isOptimizing`, `hasAccess`, `isAgeRestricted`, `isRestricted`
+- Polls encoding via AJAX every 5s when `isOptimizing` is true
+
+The primary video card component (~278 lines) used throughout the platform.
+
+**What it does:**
+
+1. **Thumbnail Container** — 16:9 aspect ratio with border:
+   - Video element for hover-preview (Bunny CDN or local)
+   - Static thumbnail image (fades out on hover)
+   - Glassmorphism play overlay (centered, appears on hover)
+   - Duration badge (bottom-right, shows remaining time during hover)
+
+2. **Conditional Overlays** (stacked by z-index):
+   - **Premium Badge**: Left-aligned with diamond icon (or right for trending)
+   - **18+ Badge**: Left-aligned rose-600 with "explicit" icon
+   - **Scheduled Premiere**: Full overlay with calendar icon and date/time
+   - **Age Restriction / Report Gate**: Full overlay (z-45) with "I Understand" button
+   - **Premium Access Lock**: Full overlay (z-40) with price display
+   - **Optimizing State**: Full overlay (z-50) with SVG circular progress and "please wait" text
+
+3. **Metadata Section** (below thumbnail):
+   - Channel avatar (with initials fallback) — clickable to channel
+   - Video title (2-line clamp, blue hover)
+   - Channel name, views count (formatted), upload date
+   - Three-dot options menu button
+
+4. **Alpine.js State**:
+   - `hover`: play/pause video
+   - `progress`: encoding progress (0-100)
+   - `isOptimizing`: shows processing overlay
+   - `hasAccess`: premium gating
+   - `isAgeRestricted` / `isRestricted`: content gates
+   - `pollStatus()`: fetches encoding status every 5 seconds
+   - Touch support: long-press to play
+
+---
+
+## STEP 2 Video Card List (partials/video_card_list.blade.php)
+**Used in:** Related videos sidebar, Playlist queue
+
+**Data Flow:**
+- Renders a single `$video` object passed from `VideoService::getRelatedVideos()` (related sidebar) or from `PlaylistService` (playlist queue)
+- Horizontal compact layout: 168px wide thumbnail, title (2-line clamp), channel avatar (24px) + name, views count, relative timestamp
+- Three-dot trigger passes `$video->id` to the same options modal used by the grid card
+- Inline JS handles hover video preview (separate from Alpine.js used in grid card)
+
+Horizontal video card variant (44 lines).
+
+---
+
+## STEP 3 Related Videos (partials/related_videos.blade.php)
+**Used in:** Video show page sidebar
+
+**Data Flow:**
+- Receives `$relatedVideos` collection from `VideoService::getRelatedVideos()` which queries videos in same category, excluding the current video, ordered by views DESC, limited to 10
+- Controller calls `VideoService::show()` → sets `$relatedVideos` → passes to view
+- `$relatedVideos` is `$video->category?->videos()->where('id', '!=', $video->id)->where('status', 1)->inRandomOrder()->limit(10)->get()`
+- Simple loop (3 lines): foreaches `$relatedVideos`, renders each through `video_card_list` partial
+
+---
+
+## STEP 4 Comment Item (partials/comment_item.blade.php)
+**Used in:** Video show page, Reel show page
+
+**Data Flow:**
+- Renders a single `$comment` object (VideoComment or ReelComment model) with `$comment->user->channel` eager-loaded
+- Recursive structure: `@include('frontend.partials.comment_item', ['comment' => $reply])` for nested replies
+- Parent view receives `$comments` from `CommentController@index` (for videos) or `ReelCommentController@index` (for reels)
+- AJAX endpoints:
+  - `POST /comment` → `CommentController@store` → creates `VideoComment` with `comment_id` (nullable for parent, set for replies)
+  - `POST /comment/{id}/update` → `CommentController@update` → authorization gate checks `$comment->user_id === auth()->id()`
+  - `POST /comment/{id}/delete` → `CommentController@destroy` → gate allows author OR video owner
+  - `POST /comment/{id}/pin` → `CommentController@pinToggle` → only video owner can pin/unpin
+  - `POST /comment/{id}/like` → `CommentController@toggleLike` → detach/attach on `likedByUsers()` pivot
+
+Recursive comment component (~233 lines) supporting threaded discussions.
+
+**Features:**
+- **User avatar**: Channel avatar, profile image, or initials fallback
+- **Pinned indicator**: Orange badge with channel icon for pinned comments
+- **Username and timestamp**: "@username" format with relative time
+- **Edited indicator**: "(edited)" label shown when `created_at != updated_at`
+- **Comment content**: `x-html="window.formatComment(content)"` for formatted display
+- **Inline Edit**: Textarea with emoji picker, Save/Cancel, auto-saves via `window.updateComment()`
+- **Like/Unlike**: Heart button with count, Alpine.js reactive `liked` + `likes`
+- **Reply**: Toggle reply form with auto-resizing textarea and emoji picker
+- **Context Menu** (three-dot):
+  - Pin/Unpin (for video owner)
+  - Edit (for comment author)
+  - Delete (for author or video owner)
+  - Block User
+  - Report
+- **Nested replies**: Recursive `@include('frontend.partials.comment_item')`
+- **Reply form**: Avatar + textarea + emoji + Cancel/Reply buttons
+- **Collapsible replies**: "View X replies" / "Hide" toggle with expand/collapse
+- Works for both `VideoComment` and `ReelComment` models
+
+---
+
+## STEP 5 Banner Carousel (partials/banner_carousel.blade.php)
+**Used in:** Homepage (slots 2, 3, 4)
+
+**Data Flow:**
+- Receives `$banners` collection from `FrontendService::getBanners()` → `Frontend::where('data_keys', 'banner')->where('status', 1)->get()` (CMS-managed banners)
+- Each banner has: `data_values->image`, `data_values->url`, `data_values->title`
+- Controller (HomepageController/index): loads banners via FrontendService, passes to view
+- Alpine.js `x-data="{ currentSlide: 0, interval: null }"` manages auto-rotation
+- Auto-rotation: `setInterval` at 5s per slide, orange progress bar fills synchronously
+- CSS `transform: translateX(-100% * currentSlide)` for smooth sliding
+- Clicking a slide's "Visit" button opens `banner.url` in `target="_blank"`
+- Supports 1-N banners gracefully
+
+Auto-rotating sponsored banner carousel (61 lines).
+
+---
+
+## STEP 6 Channel Card Small (partials/channel_card_small.blade.php)
+**Used in:** Homepage featured profiles carousel
+
+**Data Flow:**
+- Renders a single `$channel` object from `ChannelService::getFeaturedChannels()` → `Channel::where('is_featured', true)->where('status', 1)->latest()->take(10)->get()`
+- HomepageController/index loads featured channels via ChannelService, passes to view
+- Each card shows: animated avatar gradient ring (orange-to-rose), channel name, subscriber count (formatted via ChannelService), category badge
+- Live activity: green animated pulse bars when `$channel->isLive() === true` (checks LiveStream model for active stream)
+- "Popular" badge appears on hover via CSS `group-hover`
+- Drag-to-scroll: CSS `overflow-x-auto` + `scroll-snap-type: x mandatory` with `scroll-snap-align: start` on each card
+
+Featured channel card (70 lines).
+
+---
+
+## STEP 7 Creator Card Small (partials/creator_card_small.blade.php)
+**Used in:** Homepage featured profiles carousel
+
+**Data Flow:**
+- Renders a single `$creator` object from `MarketPlace::featured()->limit(8)->get()` (marketplace profiles with featured status)
+- HomepageController/index loads featured marketplace profiles via MarketPlace model query
+- Each card: avatar (with 2-letter initials fallback from profile name), creator name, and role badge
+- Same drag-to-scroll carousel container as channel cards
+- Compact: no stats, just identity + role for quick scanning
+
+---
+
+## STEP 8 Playlist Item & Player Panel
+
+### Playlist Item (partials/playlist_item.blade.php)
+**Used in:** Playlist show page
+
+**Data Flow:**
+- Renders a single `$item` object (PlaylistVideo pivot model with `$item->video` relation loaded)
+- Comes from `PlaylistService::show()` → `$playlist->videos()->with('channel')->orderByPivot('position')->get()`
+- Current playing indicator: `$activeVideoId === $item->video_id` (set by PlaylistController)
+- Drag handle (`x-sortable`) appears when `auth()->id() === $playlist->user_id` — allows reordering via AJAX `POST /playlist/{id}/reorder`
+- Each item: 168px thumbnail with duration overlay, title (1-line clamp), channel name
+- Clicks navigate to `route('video.show', $item->video->slug)` with `?playlist=$playlist->id` query param
+
+### Playlist Player Panel (partials/playlist_player_panel.blade.php)
+**Used in:** Playlist show page (desktop sidebar)
+
+**Data Flow:**
+- Receives same `$playlist` with videos collection, `$activeVideoId` from controller
+- Renders queue: scrollable list of playlist_item partials
+- Current video highlighted with rose-600 left border + "Now Playing" badge
+- "Up Next" label above the video after current
+- Shuffle toggle: Alpine.js `shuffle: boolean` randomizes `$playlistVideos` order client-side
+- Repeat toggle: Alpine.js `repeat: boolean` loops playback
+- Auto-play toggle: `x-data="{ autoPlay: true }"` → if enabled, next video auto-navigates after current ends via `@ended` event
+
+---
+
+## STEP 9 Reel Card (partials/reel_card.blade.php)
+**Used in:** Reels index, Homepage reels section
+
+**Data Flow:**
+- Renders a single `$reel` object (Reel model with user/channel relations)
+- Parent view receives reels from `ReelService::getReels()` → `Reel::where('status', 1)->with('user.channel')->latest()->paginate(20)` (Reels index) or `Reel::where('status', 1)->inRandomOrder()->limit(6)->get()` (Homepage reels section)
+- 9:16 fixed aspect ratio via Tailwind `aspect-ratio` plugin
+- Video plays on hover using inline JS `this.play()` / `this.pause()` on `<video>` element
+- Like/view/comment counts formatted with number abbreviations (1.2K, 3.4M etc.)
+- Age-restricted gate: if `$reel->is_age_restricted`, shows "18+ Content" overlay requiring click-through
+- Three-dot menu links to report/share endpoints
+
+---
+
+## STEP 10 Studio Sidebar (partials/studio_sidebar.blade.php)
+**Used in:** All studio pages
+
+**Data Flow:**
+- Renders with `auth()->user()->channel` available via `@auth` / `@endauth`
+- Navigation items hardcoded with route names:
+  - Dashboard: `route('studio.dashboard')`
+  - Videos: `route('studio.videos')`
+  - Analytics: `route('studio.analytics')`
+  - Monetization: `route('studio.monetization')`
+  - Reels: `route('studio.reels')`
+  - Duets: `route('studio.duets')`
+  - Saved Audios: `route('studio.saved.audios')`
+  - Purchased Videos: `route('studio.purchased.videos')`
+- Active state: `request()->routeIs('studio.*')` for section highlighting via Tailwind
+- On mobile: collapsible hamburger toggle using Alpine.js `x-data="{ open: false }"` + `x-show="open"`
+- Logout: POST to `route('logout')` with CSRF token
+- Channel avatar (40px rounded-full) + channel name from `auth()->user()->channel`
+
+---
+
+# FILE INDEX (All Blade Templates)
+
+Total: **114 .blade.php files** across all frontend directories
+
+## Root Frontend (14 files)
+| File | Purpose |
+|------|---------|
+| `index.blade.php` | Main homepage with tabs, reels, featured content |
+| `trending.blade.php` | Trending videos page |
+| `category_videos.blade.php` | Category-specific video listing |
+| `search.blade.php` | Search results page |
+| `embed_video.blade.php` | Minimal embed player |
+| `ott.blade.php` | OTT streaming hub |
+| `premium.blade.php` | Premium content landing |
+| `premium_trending.blade.php` | Trending premium videos |
+| `premium_videos.blade.php` | All premium videos |
+| `stock-videos.blade.php` | Stock video library |
+| `pages.blade.php` | Dynamic CMS pages |
+| `policy.blade.php` | Policy pages |
+| `cookie.blade.php` | Cookie policy |
+| `maintenance.blade.php` | Maintenance mode page |
+| `update_required.blade.php` | App update required page |
+
+## Videos (5 files)
+| File | Purpose |
+|------|---------|
+| `videos/show.blade.php` | Video player + comments + related |
+| `videos/create.blade.php` | Video upload form |
+| `videos/history.blade.php` | Watch history |
+| `videos/liked.blade.php` | Liked videos |
+| `videos/watch_later.blade.php` | Watch later list |
+
+## Reels (4 files)
+| File | Purpose |
+|------|---------|
+| `reels/index.blade.php` | TikTok-style feed |
+| `reels/show.blade.php` | Single reel view |
+| `reels/create.blade.php` | Reel upload |
+| `reels/audio.blade.php` | Audio library |
+
+## Channels (2 files)
+| File | Purpose |
+|------|---------|
+| `channels/show.blade.php` | Public channel page |
+| `channels/create.blade.php` | Create channel form |
+
+## Playlists (2 files)
+| File | Purpose |
+|------|---------|
+| `playlists/index.blade.php` | Browse playlists |
+| `playlists/show.blade.php` | Playlist player + queue |
+
+## Live (1 file)
+| File | Purpose |
+|------|---------|
+| `live/show.blade.php` | Live stream player |
+
+## Studio (10 files)
+| File | Purpose |
+|------|---------|
+| `studio/dashboard.blade.php` | Creator dashboard overview |
+| `studio/videos.blade.php` | Content manager |
+| `studio/edit.blade.php` | Video metadata editor |
+| `studio/analytics.blade.php` | Charts and metrics |
+| `studio/monetization.blade.php` | Monetization & memberships |
+| `studio/reels.blade.php` | Reel management |
+| `studio/reel-edit.blade.php` | Reel metadata editor |
+| `studio/duets.blade.php` | Duet/remix management |
+| `studio/saved_audios.blade.php` | Saved audio library |
+| `studio/purchased-videos.blade.php` | Purchased premium videos |
+
+## Client Dashboard (38 files)
+| File | Purpose |
+|------|---------|
+| `client/wallet.blade.php` | Wallet & balance |
+| `client/transactions.blade.php` | Transaction ledger |
+| `client/earnings.blade.php` | Revenue analytics |
+| `client/notifications.blade.php` | Notification feed |
+| `client/watch-later.blade.php` | Watch later |
+| `client/settings/security.blade.php` | Password & 2FA |
+| `client/ticket/index.blade.php` | Support ticket list |
+| `client/ticket/create.blade.php` | New ticket |
+| `client/ticket/view.blade.php` | Ticket detail |
+| `client/plans/index.blade.php` | Browse plans |
+| `client/plans/purchased.blade.php` | Purchased plans |
+| `client/plans/show.blade.php` | Plan detail |
+| `client/playlists/sell.blade.php` | Sell playlist |
+| `client/playlists/purchased.blade.php` | Purchased playlists |
+| `client/videos/create.blade.php` | Upload video |
+| `client/videos/purchased.blade.php` | Purchased videos |
+| `client/withdraw/methods.blade.php` | Withdrawal methods |
+| `client/withdraw/preview.blade.php` | Withdrawal preview |
+| `client/withdraw/log.blade.php` | Withdrawal history |
+| `client/kyc/form.blade.php` | KYC submission |
+| `client/kyc/info.blade.php` | KYC status |
+| `client/kyc/bank_edit.blade.php` | Bank details edit |
+| `client/monetization/index.blade.php` | Monetization settings |
+| `client/channels/create.blade.php` | Create channel |
+| `client/studio/dashboard.blade.php` | Client studio home |
+| `client/studio/videos.blade.php` | Client videos |
+| `client/studio/edit.blade.php` | Client video edit |
+| `client/studio/monetization.blade.php` | Client monetization |
+| `client/ott_plans/index.blade.php` | OTT plans |
+| `client/ads/setting.blade.php` | Ad settings |
+| `client/advertiser/dashboard.blade.php` | Advertiser dashboard |
+| `client/advertiser/ad/create.blade.php` | Create ad |
+| `client/advertiser/ad/list.blade.php` | Ad list |
+| `client/advertiser/ad/analytics.blade.php` | Ad analytics |
+| `client/advertiser/ad/advance_list.blade.php` | Advanced ad list |
+| `client/advertiser/campaign/index.blade.php` | Campaign management |
+| `client/advertiser/payment_history.blade.php` | Ad payment history |
+| `client/deposit/history.blade.php` | Deposit history |
+
+## Marketplace (23 files)
+| File | Purpose |
+|------|---------|
+| `marketplace/index.blade.php` | Marketplace home |
+| `marketplace/dashboard.blade.php` | Creator dashboard shell |
+| `marketplace/all.blade.php` | All profiles (AJAX) |
+| `marketplace/featured.blade.php` | Featured profiles |
+| `marketplace/gallery.blade.php` | Gallery showcase |
+| `marketplace/portfolio.blade.php` | Public creator portfolio |
+| `marketplace/preview.blade.php` | Plan preview/payment |
+| `marketplace/login.blade.php` | Creator login |
+| `marketplace/register.blade.php` | 3-step registration |
+| `marketplace/terms.blade.php` | Terms & conditions |
+| `marketplace/partials/creator_card.blade.php` | Creator card component |
+| `marketplace/partials/profiles_grid.blade.php` | Grid wrapper partial |
+| `marketplace/sections/dashboard.blade.php` | Dashboard tab |
+| `marketplace/sections/profile.blade.php` | Profile editor tab |
+| `marketplace/sections/gallery.blade.php` | Gallery manager tab |
+| `marketplace/sections/portfolio.blade.php` | Portfolio CRUD tab |
+| `marketplace/sections/services.blade.php` | Services tab |
+| `marketplace/sections/messages.blade.php` | Messages tab |
+| `marketplace/sections/contacts.blade.php` | Contacts tab |
+| `marketplace/sections/plans.blade.php` | Plans tab |
+| `marketplace/sections/transactions.blade.php` | Transactions tab |
+| `marketplace/sections/modals.blade.php` | Global modals |
+| `marketplace/sections/scripts.blade.php` | Global scripts (Razorpay) |
+
+## Payment & Plans (7 files)
+| File | Purpose |
+|------|---------|
+| `payment/deposit.blade.php` | Deposit gateway selection |
+| `payment/Razorpay.blade.php` | Razorpay checkout |
+| `plans/index.blade.php` | Plans listing |
+| `plans/sell.blade.php` | Plan sales history |
+| `plans/purchased.blade.php` | Purchased plans |
+| `plans/invoice.blade.php` | Plan invoice |
+| `profile/edit.blade.php` | User profile editor |
+
+## Partials (12 files)
+| File | Purpose |
+|------|---------|
+| `partials/video_card.blade.php` | Grid video card |
+| `partials/video_card_list.blade.php` | List video card |
+| `partials/related_videos.blade.php` | Related videos loop |
+| `partials/comment_item.blade.php` | Recursive comment |
+| `partials/banner_carousel.blade.php` | Banner slider |
+| `partials/channel_card_small.blade.php` | Mini channel card |
+| `partials/creator_card_small.blade.php` | Mini creator card |
+| `partials/playlist_item.blade.php` | Playlist queue item |
+| `partials/playlist_player_panel.blade.php` | Playlist panel |
+| `partials/reel_card.blade.php` | Reel card |
+| `partials/studio_sidebar.blade.php` | Studio navigation |
+| `partials/studio_sidebar_item.blade.php` | Studio nav item |
+
+## Sections & Static (3 files)
+| File | Purpose |
+|------|---------|
+| `sections/about.blade.php` | About section partial |
+| `static/settings.blade.php` | App settings |
+| `static/help.blade.php` | Help/FAQ |
+
+---
+
+## Technologies Used Across All Views
+
+| Technology | Usage |
+|------------|-------|
+| **Tailwind CSS** | Utility-first styling with `dark:` variants |
+| **Alpine.js** | Reactive UI (tabs, carousels, modals, forms, comments) |
+| **Material Symbols** | Icon set (`material-symbols-rounded`, `material-symbols-filled`) |
+| **ApexCharts** | Analytics charts (area, bar, combo, sparkline) |
+| **Razorpay** | Payment processing (plans, deposits, subscriptions) |
+| **SweetAlert2** | Toast notifications, confirmation dialogs, modals |
+| **Bunny CDN** | Video streaming and encoding |
+| **Tailwind Aspect Ratio** | Video/reel aspect ratio containers |
+| **x-app-layout** | Main application layout component |
+| **CKEditor / Quill** | Rich text editing (admin) |
+
+---
+
+(End of document — 114 blade files documented across 11 parts)

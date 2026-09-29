@@ -1,0 +1,411 @@
+﻿# BINTEO
+# Video & Reel Upload System
+# Technical Implementation & Current Status Report
+Generated: 24 August 2026 | Basis: direct inspection of the current codebase
+and production log excerpts supplied by the client. Report generation only -
+no code was modified for this document.
+
+================================================================================
+1. EXECUTIVE SUMMARY
+================================================================================
+BINTEO implements browser-based, resumable video and reel uploads using the
+TUS protocol with a same-origin server proxy (/tus-proxy) that forwards
+chunks to Bunny CDN Stream. Encoding is performed by Bunny's cloud; Laravel
+queues handle only background work (notifications, legacy local-file
+processing) - never the video byte transfer itself.
+
+Confirmed working: desktop uploads end-to-end (a 25,347,916-byte video
+completed all chunks and reached Bunny offset 25,347,916 with HTTP 204),
+independent repeat uploads receiving fresh identifiers, Bunny integration,
+processing/polling, and the fallback path.
+
+Current known issue: upload reliability on Android Chrome. Two transport-
+level defects have been located and corrected in code (PHP input-timeout
+limit and HTTP Expect-header handling). The correction is deployed to code
+but final on-device confirmation is pending. Root cause is UNDER
+INVESTIGATION - chunking and queue configuration are NOT confirmed causes.
+
+================================================================================
+2. SYSTEM ARCHITECTURE
+================================================================================
+Browser (tus-js-client v3.0.0)
+   | 1. POST /videos|reels/prepare-upload   (metadata, validation)
+   |    -> creates local record + Bunny video (GUID) + signed TUS params
+   | 2. POST create -> PATCH chunks (2 MB) -> HEAD recovery when needed
+   v
+/tus-proxy (same-origin, Laravel - TusProxyController)
+   v
+https://video.bunnycdn.com/tusupload (Bunny Stream)
+   v
+Bunny cloud encoding
+   v
+POST /webhooks/bunny (auto-publish) + frontend status polling
+
+Rationale for the proxy: direct browser-to-Bunny TUS requests were blocked
+by CORS enforcement on Android Chrome (observed previously). Routing through
+the application's own origin removes cross-origin preflights entirely while
+keeping all upload bytes flowing directly toward Bunny.
+
+================================================================================
+3. VIDEO UPLOAD FLOW
+================================================================================
+Stage | File / Route | Purpose
+--------------------------------------------------------------------------------
+View        resources/views/frontend/videos/create.blade.php
+            Alpine component videoUpload(); 3-step wizard (select -> details ->
+            publish); MIME fallback by extension for mobile; duration read via
+            hidden <video> metadata incl. Chromium Infinity-duration workaround;
+            ObjectURL preview; input value reset enables same-file reselection.
+Prepare     POST /videos/prepare-upload (throttle:upload)
+            BunnyUploadController::prepareUpload validates input ->
+            UploadService::prepareUpload:
+              - BunnyStreamService::createVideo() -> POST to Bunny API,
+                returns Bunny Video GUID
+              - local Video row created: bunny_id, bunny_status='uploading',
+                slug uniqueness enforced, pricing tiers mapped server-side
+              - notifySubscribersVideo() + AdminNotification
+              - BunnyStreamService::getTusUploadParams(): signature =
+                SHA256(libraryId + apiKey + expiry + videoId), expiry = now+24h
+              - returns JSON {video_id, video_slug, bunny_id, tus:{endpoint,
+                headers}} where endpoint is url('/tus-proxy')
+TUS session Browser POSTs to /tus-proxy; TusProxyController::create forwards
+            creation to Bunny and rewrites the Location header so subsequent
+            chunk URLs stay same-origin (/tus-proxy/{tusUploadId}).
+Transfer    tus-js-client PATCHes 2 MB chunks at increasing Upload-Offset.
+Processing  Bunny encodes in cloud (no local FFmpeg for Bunny videos;
+            ProcessVideo job exits early when video_path is empty).
+Completion  GET status endpoint (UploadService::checkStatus): Bunny status 4 or
+            encodeProgress >= 100 => bunny_status 'ready', video published;
+            statuses 1-3 => processing; 5-6 => error. BunnyWebhookController
+            also auto-publishes on the encode-complete webhook.
+
+================================================================================
+4. REEL UPLOAD FLOW
+================================================================================
+Identical pipeline with reel-specific additions:
+- View: resources/views/frontend/reels/create.blade.php - gallery upload OR
+  live camera recording (MediaRecorder, filters, duet split-screen), music
+  system (global/library/upload sources), <=90 s client-side duration gate.
+- Prepare: POST /reels/prepare-upload -> UploadService::prepareReelUpload:
+  separate reel Bunny library/collection, hashtag extraction (ReelHashtag /
+  ReelTag), mention resolution (ReelMention), duet linkage (parent_id,
+  original_reel_id), music metadata persistence.
+- Processing: reels arriving via the FALLBACK path store a local copy and
+  dispatch App\Jobs\CompressReel (FFmpeg compression, tries=3, timeout=300s);
+  compression_status tracks 1=processing/2=done/3=failed. Bunny-uploaded
+  reels are encoded by Bunny exactly like videos.
+
+================================================================================
+5. CONTROLLER LAYER
+--------------------------------------------------------------------------------
+(see companion file txt\VIDEO_REEL_CONTROLLERS_REPORT.txt for the complete
+method-level listing)
+
+BunnyUploadController (app\Http\Controllers\Web\BunnyUploadController.php)
+  Responsibilities: request validation; delegation to UploadService for
+  prepare/reel-prepare; thumbnail storage; status checks; frontend error
+  logging endpoint. All routes behind auth + throttle:upload.
+
+TusProxyController (app\Http\Controllers\TusProxyController.php)
+  Responsibilities: same-origin forwarding of TUS create/PATCH/HEAD/OPTIONS;
+  Location rewriting; offset-aware bounded 409 recovery; stage diagnostics
+  logging; identifier separation between Bunny Video GUID and TUS Upload ID.
+
+DirectUploadController (app\Http\Controllers\Web\DirectUploadController.php)
+  Responsibilities: fallback-only server-side upload of an EXISTING record
+  to its EXISTING Bunny GUID (cannot create duplicates).
+
+Web\VideoController / Web\ReelController
+  Page rendering, likes/comments/history/watch-later, PPV order+purchase,
+  impressions, reporting. ReelController additionally handles music search,
+  dwell logging, pin/unpin comments, audio pages.
+
+Admin controllers: Admin\VideoController, ManageVideoController (23 methods:
+status-tab listings, feature/trend toggles, slug check, analytics),
+ManageReelController (18 methods incl. approve/reject/bulk/duets),
+VideoInteraction/VideoResolution/VideoProcessing/VideoCommissionController.
+
+================================================================================
+6. MIDDLEWARE & SECURITY
+--------------------------------------------------------------------------------
+Full web stack executes on video/reel pages and upload endpoints, in order:
+CheckMaintenanceMode, IpBlockingMiddleware, VisitorLogMiddleware,
+ForceUpdateMiddleware, BlockAdminFromFrontend, XssSanitization,
+SecurityHeaders, Honeypot, CheckUserStatus, CaptureTrafficSource,
+LogSystemPerformance, CheckModerationStrikes (blocks uploads at >=3 copyright
+strikes), CheckModerationNotices, UpdateLastSeen.
+
+Specific applications [confirmed from code]:
+- Auth: required on all upload/proxy routes (routes/web.php groups).
+- XssSanitization: excluded ONLY for /tus-proxy/* (binary chunks must remain
+  unmodified) - routes/web.php:651 withoutMiddleware.
+- CSRF (bootstrap/app.php validateCsrfTokens except): 'webhooks/*', 'ipn/*',
+  'tus-proxy', 'tus-proxy/*', 'api/telemetry/*'. Reason: TUS is a stateless
+  signed protocol whose client cannot send Laravel CSRF tokens; security is
+  preserved via per-upload signatures + authentication + rate limiting.
+  Verified live: proxy endpoints return auth redirects, not 419.
+- Rate limiting: RateLimiter 'upload' = 100 requests/hour per user id or IP
+  (AppServiceProvider line ~180), applied to both prepare-upload routes.
+================================================================================
+7. VIEW / BLADE LAYER
+--------------------------------------------------------------------------------
+frontend/videos/create.blade.php
+  Purpose: video upload wizard. TUS logic: fresh tus.Upload per attempt,
+  endpoint taken from backend JSON (never hardcoded). Validation: title +
+  category before publish; file presence. Progress: live %, speed, ETA in
+  SweetAlert2 dialog. Error handling: classified messages + POST to
+  upload/log-error + automatic fallback attempt. Reset/cancel: input value
+  cleared in onVideoChange (same-file reselection), uploading guard prevents
+  concurrent starts and is reset on every terminal path.
+
+frontend/reels/create.blade.php
+  Purpose: reel wizard with camera recording, music, duets. Same TUS config,
+  guards, fallback, and reset behavior as the video wizard; additional
+  <=90 s duration validation and music-source form assembly.
+
+frontend/videos/show.blade.php: watch page - deferred Plyr/hls.js, PPV
+  paywall with Razorpay checkout, comments, ads, telemetry.
+frontend/reels/index.blade.php: feed with HLS players and processing-status
+  polling refresh.
+Companion detail: txt\MIDDLEWARE_VIEWS_VIDEO_REEL_REPORT.txt.
+
+================================================================================
+8. ROUTES (actual, from routes/web.php)
+================================================================================
+| Route | Method | Handler | Purpose |
+|---|---|---|---|
+| videos/prepare-upload | POST | BunnyUploadController@prepareUpload | validate+create record+GUID+TUS params |
+| reels/prepare-upload | POST | BunnyUploadController@prepareReelUpload | same for reels |
+| tus-proxy | POST | TusProxyController@create | forward TUS creation |
+| tus-proxy/{id} | PATCH | TusProxyController@patch | forward chunk (+409 recovery) |
+| tus-proxy/{id} | HEAD | TusProxyController@head | forward offset probe |
+| tus-proxy/{id?} | OPTIONS | TusProxyController@options | preflight response |
+| videos/direct-upload | POST | DirectUploadController@uploadVideo | server-side fallback |
+| reels/direct-upload | POST | DirectUploadController@uploadReel | server-side fallback |
+| videos/{video}/status | GET | BunnyUploadController@checkStatus | encode polling |
+| reels/{reel}/status | GET | BunnyUploadController@checkReelStatus | encode polling |
+| webhooks/bunny | POST | BunnyWebhookController@handle | auto-publish on encode |
+| upload/log-error | POST | BunnyUploadController@logError | frontend error capture |
+
+================================================================================
+9. BUNNY CDN INTEGRATION
+--------------------------------------------------------------------------------
+- Video slot creation via Bunny Stream API returns a Bunny Video GUID.
+- Two identifiers exist and are kept separate [confirmed in code]:
+    * Bunny Video GUID - permanent content id, used for playback URLs,
+      thumbnails, deletion, and signed into authorization.
+    * TUS Upload ID - temporary transfer-session id returned in the create
+      Location header; used only as the PATCH/HEAD URL suffix during upload.
+  Logging previously labelled both as 'bunny_video_id'; this was corrected to
+  'bunny_video_guid' vs 'tus_upload_id' for unambiguous diagnostics.
+- Authentication: per-upload signature = SHA256(libraryId + apiKey + expiry +
+  videoId) with 24-hour expiry (BunnyStreamService::getTusUploadParams).
+  The raw API key never leaves the server.
+- Playback: Bunny CDN hostname serves thumbnails, preview.webp animations and
+  HLS/MP4 renditions; signed playback tokens supported.
+
+================================================================================
+10. TUS RESUMABLE UPLOAD
+--------------------------------------------------------------------------------
+[Confirmed from code] Client library: tus-js-client v3.0.0, served locally
+(public/assets/js/tus.min.js) with filemtime() versioning to defeat stale
+browser cache. Endpoint supplied by backend JSON = url('/tus-proxy').
+Configuration on both wizards:
+  chunkSize: 2 MB | retryDelays: [0,3000,5000,10000,20000]
+  storeFingerprintForResuming: false | fingerprint: random per attempt
+Every attempt therefore creates an independent session; resume of a previous
+attempt cannot occur. Completion: client PATCHes until offset equals
+Upload-Length; Bunny answers 204.
+
+================================================================================
+11. CHUNKING IMPLEMENTATION
+--------------------------------------------------------------------------------
+Why chunked: resumability across mobile network drops, memory-bounded
+transfers, retry granularity of 2 MB.
+How sent: sequential PATCHes with monotonic Upload-Offset; proxy forwards
+each chunk with Content-Type application/offset+octet-stream.
+Is chunking confirmed to be the root cause?  NO - NOT CONFIRMED.
+Evidence: the identical chunking path completed a full 25,347,916-byte
+desktop upload through the same proxy and chunks (offset reached exactly
+25,347,916, HTTP 204). Chunking is part of the architecture; no evidence
+implicates it as the cause of the mobile failures.
+
+================================================================================
+12. UPLOAD OFFSET & 409 HANDLING
+--------------------------------------------------------------------------------
+On 409 Conflict (client offset != stored offset), TusProxyController::patch
+performs bounded recovery (MAX_OFFSET_RECOVERY_ATTEMPTS = 2):
+  HEAD Bunny -> validate reported offset (numeric, >=0, <= Upload-Length)
+  A) equal to client offset        -> resend current chunk
+  B) inside current chunk          -> send only remaining bytes
+  C) beyond current chunk end      -> report chunk complete (204)
+  D) behind client or unparseable  -> fail safely (HTTP 400) + critical log;
+     frontend stops retrying and uses fallback
+No infinite loops: hard cap per PATCH; non-retryable statuses stop the TUS
+client; frontend fallback is the final safety net. No new Bunny upload is
+ever created because of a 409.
+
+================================================================================
+13. QUEUE & BACKGROUND PROCESSING
+--------------------------------------------------------------------------------
+QUEUE_CONNECTION=database (.env, confirmed). Queue-backed jobs:
+ProcessVideo (legacy local FFmpeg HLS; skips Bunny uploads),
+CompressReel (fallback-path reel compression), RecordVideoView,
+SendFirebaseNotificationJob, NotifySubscribers, WriteSystemLog.
+Is QUEUE_CONNECTION=database confirmed to be the cause?  NO.
+The byte transfer (Browser -> TUS -> /tus-proxy -> Bunny) never touches
+Laravel queues; queues execute only post-upload background work. A missing
+queue worker would delay notifications/processing visibility but cannot
+interrupt or corrupt a TUS transfer.
+
+================================================================================
+14-15. VIDEO & REEL PROCESSING FLOWS
+--------------------------------------------------------------------------------
+UPLOAD vs PROCESSING are distinct phases: upload ends when Bunny acknowledges
+the final byte; processing is Bunny's cloud encoding afterwards.
+Local bunny_status lifecycle: uploading -> processing -> ready | error,
+updated by status polling endpoints and the encode-complete webhook.
+Published scope requires bunny_status='ready', so unfinished copies stay
+invisible publicly. Reels additionally track compression_status when the
+fallback path is used. FFmpeg runs only for legacy/local files (queued).
+
+================================================================================
+16. SAME-VIDEO UPLOAD HANDLING
+--------------------------------------------------------------------------------
+Confirmed from code AND production logs: each prepare-upload creates a NEW
+local row, NEW Bunny GUID and NEW TUS session. Production evidence shows
+video_id 27 -> GUID f173fdbd... session 7e1cac9b..., then video_id 28 ->
+GUID fb6bef35... session ff9fbac2... for the repeat upload. The frontend
+builds a new tus.Upload object inside each startUpload invocation with a
+random fingerprint; no shared/global upload state exists in either wizard.
+Same filename does NOT imply same upload.
+
+================================================================================
+17. DESKTOP VS MOBILE UPLOAD BEHAVIOR
+--------------------------------------------------------------------------------
+Desktop (working): identical code path - wizard -> prepare -> proxied TUS.
+Confirmed complete end-to-end transfer of a 25 MB file.
+Mobile (issue): same code path, but failures observed as transport-level
+errors: browser reports [object ProgressEvent] with response code n/a -
+meaning the connection closed WITHOUT an HTTP response, i.e. the failure
+occurs between browser and application server or during server-side
+processing of the request, not as a normal HTTP error from Bunny.
+
+Environmental differences under investigation:
+- mobile network throughput/instability affecting time-sensitive limits
+- server-side input-read timeout (see section 18 - corrected)
+- Android Chrome request behaviors (e.g., Expect/100-continue handling -
+  mitigated by suppressing the header)
+No confirmed difference in the application logic itself.
+
+================================================================================
+18. IMPLEMENTED RELIABILITY IMPROVEMENTS
+--------------------------------------------------------------------------------
+1. Same-file reselection | input value reset in onVideoChange |
+   both create wizards | DEPLOYED IN CODE
+2. Duplicate startUpload prevention | uploading guard at method entry,
+   reset on all terminal paths | both wizards | DEPLOYED IN CODE
+3. Independent upload sessions | fresh GUID + session + fingerprint per
+   attempt | UploadService + frontend | CONFIRMED BY PRODUCTION LOGS
+4. CSRF correction for bare POST /tus-proxy | exclusion added in
+   bootstrap/app.php; previously returned 419 (reproduced locally,
+   verified fixed) | DEPLOYED IN CODE
+5. Offset-aware bounded 409 recovery with offset validation and fail-safe
+   abort | TusProxyController::patch | DEPLOYED IN CODE
+6. PHP input-timeout raise (.user.ini max_input_time 60->300,
+   max_execution_time 30->120) to stop mid-chunk connection termination on
+   slow mobile links | DEPLOYED IN FILE - REQUIRES SERVER UPLOAD TO TAKE
+   EFFECT
+7. Expect-header suppression + explicit connect timeouts on all Bunny calls |
+   TusProxyController | DEPLOYED IN CODE
+8. Stage diagnostics logging (patch.start / body_received / bunny.patch.*
+   / response.sent with offsets, sizes, elapsed ms) | DEPLOYED IN CODE
+9. Identifier separation tus_upload_id vs bunny_video_guid | logging only;
+   functional mapping was already correct | DEPLOYED IN CODE
+10. Versioned local tus client asset replacing CDN tag | both wizards |
+    DEPLOYED IN CODE
+
+================================================================================
+19. FALLBACK UPLOAD
+--------------------------------------------------------------------------------
+Exists and preserved. Trigger: automatic, after bounded TUS retries exhaust.
+Flow: DirectUploadController -> UploadService::uploadVideoDirect /
+uploadReelDirect -> HTTP PUT of the file to the record's EXISTING bunny_id
+(reels additionally dispatch CompressReel). It cannot duplicate records
+because it targets the existing ids by ownership-checked lookup. Limitations:
+subject to PHP/web-server body-size limits; consumes server bandwidth; it is
+a safety net, not the primary path.
+
+================================================================================
+20. PERFORMANCE
+--------------------------------------------------------------------------------
+Upload performance: 2 MB chunks => ~13 requests per 25 MB file; each chunk is
+one short PHP request. Bytes transit the Laravel server (proxy architecture)
+so ingress+egress bandwidth equals file size x2 versus direct-to-Bunny.
+Processing performance: fully offloaded to Bunny encoders; local FFmpeg only
+for legacy/fallback reels via queued jobs; playback served from CDN edge.
+
+================================================================================
+21. SCALABILITY
+--------------------------------------------------------------------------------
+10 concurrent uploads: comfortably handled (short-lived proxy requests).
+100 concurrent uploads: feasible; sustained aggregate bandwidth becomes the
+governing factor on typical shared hosting.
+1,000 concurrent uploads: not realistic through the proxy tier alone; would
+require revisiting direct signed uploads, dedicated upload infrastructure,
+or edge forwarding. Architectural bottleneck: application-server bandwidth/
+worker churn during chunk forwarding - NOT MySQL, NOT queues.
+
+================================================================================
+22. CURRENT KNOWN ISSUE
+--------------------------------------------------------------------------------
+Mobile (Android Chrome) upload reliability. Characterized by transport-level
+failures (no HTTP response) during proxied chunk transfer, including one
+anomalous Bunny-reported offset ('2') at the start of a repeat upload whose
+origin is still being pinpointed via the new stage diagnostics. Two concrete
+server-side defects have already been corrected (input timeout, Expect
+handling); on-device confirmation is pending.
+
+Root-cause assessment:
+- Chunking: NOT CONFIRMED as cause (desktop completes identically).
+- QUEUE_CONNECTION=database: NOT INVOLVED in byte transfer (confirmed from
+  code); therefore not the cause of transport failures.
+- Confirmed contributing defects found so far: PHP input-timeout ceiling,
+  Expect/100-continue handling, bare-path CSRF exclusion gap - all fixed.
+- Remaining unknown: definitive origin of the anomalous '2' offset; expected
+  to be resolved by the next production reproduction using the new logs.
+
+================================================================================
+23. RECOMMENDATIONS
+--------------------------------------------------------------------------------
+Immediate: deploy current codebase incl. .user.ini to production; rerun the
+mobile scenarios; capture 'TUS Proxy:' log lines on any failure.
+Short-term: benchmark 5 MB vs 2 MB chunks (single-variable experiment);
+add an ownership check on proxied PATCHes; enable version control.
+Future scalability: if upload volume grows materially, evaluate signed
+direct-to-Bunny uploads once mobile CORS behavior permits, or dedicated
+upload infrastructure/edge forwarding.
+
+================================================================================
+24. FINAL CONCLUSION
+--------------------------------------------------------------------------------
+BINTEO's upload system is a resumable, chunked, proxy-mediated TUS pipeline
+into Bunny CDN Stream, with cloud encoding, webhook/polling status
+management, independent per-upload identifiers, a server-side fallback, and
+layered security (auth, signatures, rate limiting, moderation gates). Desktop
+uploads are confirmed working end-to-end, including repeat uploads of the
+same file, which correctly produce fresh records and sessions every time.
+The reported difficulty is specific to mobile conditions and is confined to
+the transport layer of proxied chunk requests. Chunking and queue
+configuration are excluded, on evidence, as root causes. Two server-side
+transport defects have been identified and corrected; the remaining step is
+on-device verification against the newly instrumented diagnostics, which are
+designed to conclusively identify any residual failure point without further
+speculation.
+
+Confidence legend used throughout: "Confirmed from code", "Observed in
+production logs", "Not confirmed / under investigation".
+
+================================================================================
+END OF REPORT
+================================================================================

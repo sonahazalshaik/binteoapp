@@ -1,0 +1,108 @@
+Add a new **Portfolio** section to the Marketplace module.
+
+### Frontend Changes
+
+**Location**
+
+* Add a new tab named **Portfolio** on the public profile page:
+
+  * URL Example: `http://127.0.0.1:8000/m/p/33/testsona`
+* Place the **Portfolio** tab **before the Services tab**.
+
+### Portfolio Features
+
+Allow users to create and manage multiple portfolio entries.
+
+Each portfolio entry should contain:
+
+* Title
+* Multiple Images (gallery upload)
+* Description (CKEditor content)
+* Sort Order (optional)
+* Status (Active/Inactive)
+
+### UI/UX Requirements
+
+* Use a clean and modern design.
+* Keep the section lightweight and compact.
+* Do not create a large or bulky layout.
+* Follow the existing Marketplace design language.
+* Mobile-first responsive design.
+* Tablet responsive design.
+* Desktop responsive design.
+* Use card-based portfolio items.
+* Images should open in a lightbox/gallery viewer when clicked.
+* Optimize image loading for performance.
+
+### Public Profile Display
+
+Portfolio tab should display:
+
+* Portfolio cards in a responsive grid.
+* Portfolio cover image thumbnail.
+* Portfolio title.
+* Short description preview.
+* "View Details" action.
+* Gallery slider/lightbox for multiple images.
+* Full CKEditor content inside the detail view.
+
+### Database Requirements
+
+Create portfolio tables with proper relationships to marketplace profiles/users.
+
+Suggested fields:
+
+* id
+* marketplace_profile_id
+* title
+* description
+* status
+* sort_order
+* created_at
+* updated_at
+
+Create a separate portfolio_images table:
+
+* id
+* portfolio_id
+* image
+* sort_order
+
+### Admin Panel
+
+Add Portfolio management inside Marketplace.
+
+Location:
+
+* Marketplace Dropdown Menu
+* Insert **Portfolio** menu item before **Contact Inquiries**
+
+Admin Features:
+
+* Portfolio List
+* Create Portfolio
+* Edit Portfolio
+* Delete Portfolio
+* Status Toggle
+* Image Management
+* Search & Filter
+
+### User Dashboard
+
+Allow marketplace users to:
+
+* Add Portfolio
+* Edit Portfolio
+* Delete Portfolio
+* Reorder Portfolio Items
+* Upload Multiple Images
+* Manage CKEditor Content
+
+### Technical Requirements
+
+* Follow existing Laravel architecture and coding standards.
+* Create migrations, models, controllers, requests, policies, routes, and views.
+* Use existing reusable components where possible.
+* Ensure responsive behavior across desktop, tablet, and mobile devices.
+* Maintain performance and clean UI without heavy animations.
+* Analyze the existing marketplace structure first and then implement the feature without breaking existing functionality.

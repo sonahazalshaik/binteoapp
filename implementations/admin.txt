@@ -1,0 +1,454 @@
+╔══════════════════════════════════════════════════════════════╗
+║              ADMIN PANEL ARCHITECTURE PATTERN               ║
+║           app/Http/Controllers/Admin/*Controller.php        ║
+╚══════════════════════════════════════════════════════════════╝
+
+CONTROLLER TIERS:
+  Web  →  app/Http/Controllers/Web/    (Bootstrap 5 Blade views, Sessions/Cookies)
+  API  →  app/Http/Controllers/Api/    (JSON responses via Resources)
+  Admin →  app/Http/Controllers/Admin/ (Bootstrap 5 Admin Panel)
+
+══════════════════════════════════════════════════════════════
+  ADMIN CONTROLLER → SERVICE → RESPONSE FLOW
+══════════════════════════════════════════════════════════════
+
+  Route (web.php)
+       │
+       ▼
+  Admin\Controller@method            ← Handles request/response only
+       │
+       │  ┌─ Validation: FormRequest (StoreXxxRequest / UpdateXxxRequest)
+       │  ├─ Gate: $this->authorize('permission')
+       │  └─ Service: $this->service->method()
+       │
+       ▼
+  App\Services\Admin\XxxService       ← All business logic here
+       │
+       │  ┌─ authorize(string $ability)
+       │  ├─ create(Model::class, array $data)
+       │  ├─ update($model, array $data)
+       │  ├─ delete($model)
+       │  ├─ massDelete(Model::class, array $ids)
+       │  └─ handleFileUpload($model, $request, string $field)
+       │
+       ▼
+  Response: view('admin.*') or redirect()->route()
+
+══════════════════════════════════════════════════════════════
+  STANDARD ADMIN CONTROLLER TEMPLATE
+══════════════════════════════════════════════════════════════
+
+  <?php
+
+  namespace App\Http\Controllers\Admin;
+
+  use App\Http\Controllers\Controller;
+  use App\Http\Requests\StoreXxxRequest;
+  use App\Http\Requests\UpdateXxxRequest;
+  use App\Models\Xxx;
+  use App\Services\Admin\XxxService;
+
+  class XxxController extends Controller
+  {
+      protected XxxService $service;
+
+      public function __construct(XxxService $service)
+      {
+          $this->service = $service;
+      }
+
+      public function index(Request $request)
+      {
+          $this->service->authorize('xxx_access');
+
+          if ($request->ajax()) {
+              $query = Xxx::query()->select(sprintf('%s.*', (new Xxx)->getTable()));
+              $table = \Yajra\DataTables\Facades\DataTables::of($query);
+              $table->addColumn('actions', '&nbsp;');
+              $table->editColumn('actions', function ($row) {
+                  return view('partials.datatables_actions', [
+                      'viewGate'      => 'xxx_show',
+                      'editGate'      => 'xxx_edit',
+                      'deleteGate'    => 'xxx_delete',
+                      'route'         => 'admin.xxx',
+                      'id'            => $row->id
+                  ]);
+              });
+              $table->rawColumns(['actions']);
+              return $table->make(true);
+          }
+
+          return view('admin.xxx.index');
+      }
+
+      public function create()
+      {
+          $this->service->authorize('xxx_create');
+          return view('admin.xxx.create');
+      }
+
+      public function store(StoreXxxRequest $request)
+      {
+          $xxx = $this->service->create(Xxx::class, $request->validated());
+
+          if ($request->hasFile('image')) {
+              $this->service->handleFileUpload($xxx, $request, 'image');
+          }
+
+          return redirect()->route('admin.xxx.index')
+              ->with('success', 'Created successfully');
+      }
+
+      public function show(Xxx $xxx)
+      {
+          $this->service->authorize('xxx_show');
+          return view('admin.xxx.show', compact('xxx'));
+      }
+
+      public function edit(Xxx $xxx)
+      {
+          $this->service->authorize('xxx_edit');
+          return view('admin.xxx.edit', compact('xxx'));
+      }
+
+      public function update(UpdateXxxRequest $request, Xxx $xxx)
+      {
+          $this->service->update($xxx, $request->validated());
+
+          if ($request->hasFile('image')) {
+              $this->service->handleFileUpload($xxx, $request, 'image');
+          }
+
+          return redirect()->route('admin.xxx.index')
+              ->with('success', 'Updated successfully');
+      }
+
+      public function destroy(Xxx $xxx)
+      {
+          $this->service->authorize('xxx_delete');
+          $this->service->delete($xxx);
+          return back()->with('success', 'Deleted successfully');
+      }
+
+      public function massDestroy(Request $request)
+      {
+          $this->service->massDelete(Xxx::class, $request->ids);
+          return response()->json(['success' => true]);
+      }
+  }
+
+══════════════════════════════════════════════════════════════
+  ADMIN SERVICE TEMPLATE
+══════════════════════════════════════════════════════════════
+
+  <?php
+
+  namespace App\Services\Admin;
+
+  use Illuminate\Support\Facades\Gate;
+  use Symfony\Component\HttpFoundation\Response;
+
+  class XxxService
+  {
+      public function authorize(string $ability): void
+      {
+          abort_if(Gate::denies($ability), Response::HTTP_FORBIDDEN, '403 Forbidden');
+      }
+
+      public function create(string $modelClass, array $data)
+      {
+          return $modelClass::create($data);
+      }
+
+      public function update($model, array $data)
+      {
+          $model->update($data);
+          return $model;
+      }
+
+      public function delete($model): void
+      {
+          $model->delete();
+      }
+
+      public function massDelete(string $modelClass, array $ids): void
+      {
+          $modelClass::whereIn('id', $ids)->delete();
+      }
+
+      public function handleFileUpload($model, $request, string $field): void
+      {
+          $path = fileUploader($request->file($field), getFilePath($field));
+          $model->update([$field => $path]);
+      }
+  }
+
+══════════════════════════════════════════════════════════════
+  FORM REQUEST TEMPLATE
+══════════════════════════════════════════════════════════════
+
+  <?php
+
+  namespace App\Http\Requests;
+
+  use Illuminate\Foundation\Http\FormRequest;
+  use Illuminate\Support\Facades\Gate;
+
+  class StoreXxxRequest extends FormRequest
+  {
+      public function authorize(): bool
+      {
+          return Gate::allows('xxx_create');
+      }
+
+      public function rules(): array
+      {
+          return [
+              'name'  => ['required', 'string', 'max:255'],
+              'email' => ['required', 'email', 'unique:users,email'],
+              'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png', 'max:5120'],
+          ];
+      }
+
+      public function messages(): array
+      {
+          return [
+              'name.required' => 'The name field is required.',
+          ];
+      }
+  }
+
+══════════════════════════════════════════════════════════════
+  USAGE IN ROUTES
+══════════════════════════════════════════════════════════════
+
+  // web.php
+  Route::prefix('admin')->name('admin.')->group(function () {
+      Route::middleware(['admin'])->group(function () {
+          Route::get('/xxx', [XxxController::class, 'index'])->name('xxx.index');
+          Route::post('/xxx', [XxxController::class, 'store'])->name('xxx.store');
+          Route::get('/xxx/{xxx}/edit', [XxxController::class, 'edit'])->name('xxx.edit');
+          Route::post('/xxx/{xxx}/update', [XxxController::class, 'update'])->name('xxx.update');
+          Route::delete('/xxx/{xxx}', [XxxController::class, 'destroy'])->name('xxx.destroy');
+      });
+  });
+
+══════════════════════════════════════════════════════════════
+══════════════════════════════════════════════════════════════
+  ADMIN VIEW STRUCTURE (resources/views/admin/)
+══════════════════════════════════════════════════════════════
+
+  Every admin controller method returns a view from admin/:
+  ┌─────────────────────────────────────────────────────────┐
+  │  CONTROLLER METHOD          │ VIEW PATH                │
+  ├─────────────────────────────────────────────────────────┤
+  │  index()                    │ admin.xxx.index          │
+  │  create()                   │ admin.xxx.create         │
+  │  store()                    → redirect to index       │
+  │  show($id)                  │ admin.xxx.show           │
+  │  edit($id)                  │ admin.xxx.edit           │
+  │  update()                   → redirect to index       │
+  │  destroy()                  → back()                   │
+  └─────────────────────────────────────────────────────────┘
+
+  ╔══════════════════════════════════════════════════════════╗
+  ║  ADMIN LAYOUT CHAIN                                     ║
+  ╚══════════════════════════════════════════════════════════╝
+
+    @extends('admin.layouts.master')  ← Bootstrap 5 (old)
+    OR
+    @extends('admin.layouts.app')     ← Tailwind (new)
+
+    Both include:
+      ├── partials/sidenav.blade.php  ← Admin sidebar menu
+      ├── partials/topnav.blade.php   ← Top navbar
+      ├── partials/breadcrumb.blade.php ← Breadcrumb trail
+      ├── @yield('content')           ← Page content
+      └── partials/notify             ← Flash messages
+
+  ╔══════════════════════════════════════════════════════════╗
+  ║  ADMIN VIEW EXAMPLE (admin/videos/index.blade.php)      ║
+  ╚══════════════════════════════════════════════════════════╝
+
+    @extends('admin.layouts.master')
+    @section('title', $pageTitle)
+    @section('content')
+        <div class="card">
+            <div class="card-header">
+                <h5>{{ __($pageTitle) }}</h5>
+            </div>
+            <div class="card-body">
+                <table class="table">
+                    <thead><tr><th>Title</th><th>User</th><th>Status</th><th>Action</th></tr></thead>
+                    <tbody>
+                        @foreach($videos as $video)
+                        <tr>
+                            <td>{{ $video->title }}</td>
+                            <td>{{ $video->user->username }}</td>
+                            <td>@php echo $video->statusBadge; @endphp</td>
+                            <td>
+                                <a href="{{ route('admin.videos.edit', $video->id) }}" class="btn btn-sm btn-primary">
+                                    <i class="fa fa-pen"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+                {{ $videos->links() }}
+            </div>
+        </div>
+    @endsection
+
+══════════════════════════════════════════════════════════════
+  ADMIN VIEW DIRECTORY (all subdirectories)
+══════════════════════════════════════════════════════════════
+
+  resources/views/admin/
+  ├── advance_ads/        ├── gateway/         ├── playlist/
+  ├── advertisements/     ├── growth/          ├── processing/
+  ├── advertiser/         ├── kyc/             ├── reels/
+  ├── analytics/          ├── language/        ├── reports/
+  ├── auth/               ├── layouts/         ├── security/
+  ├── banners/            ├── marketplace/     ├── setting/
+  ├── campaign/           ├── moderation/      ├── settings/
+  ├── campaigns/          ├── monetization/    ├── storage/
+  ├── category/           ├── notification/    ├── subscriber/
+  ├── channels/           ├── not_interested/  ├── support/
+  ├── comment_reports/    ├── onboarding/      ├── system/
+  ├── comments/           ├── ott_plans/       ├── userplan/
+  ├── components/         ├── partials/        ├── users/
+  ├── cron/               ├── plan/            ├── video_commissions/
+  ├── deposit/            ├── plans/           ├── video_resolution/
+  ├── extension/          ├── partials/        ├── videos/
+  ├── frontend/                              └── withdraw/
+
+══════════════════════════════════════════════════════════════
+  ADMIN SERVICE CREATION PLAN (59 controllers → services)
+══════════════════════════════════════════════════════════════
+
+  Current: 5 services exist (BunnyStream, BrevoMail, CloudFlare,
+           Firebase, ZeptoMail) — all infrastructure, no CRUD services.
+  Need:    Admin/ directory under app/Services/ with grouped services.
+
+  ╔══════════════════════════════════════════════════════════╗
+  ║  GROUP 1: CORE CRUD SERVICES (create App\Services\Admin\)║
+  ╚══════════════════════════════════════════════════════════╝
+
+  Create these 12 service files:
+
+  1. SimpleCrudService.php  ← BASE template (authorize, create,
+     update, delete, massDelete, handleFileUpload)
+
+  2. VideoService.php       ← Video CRUD + processing + Bunny
+     Services: Admin\VideoController, ManageVideoController,
+     VideoProcessingController, VideoResolutionController,
+     VideoInteractionController, VideoCommissionController
+
+  3. UserService.php        ← User CRUD + KYC + monetization
+     Services: Admin\UserController, ManageUsersController,
+     KycController, UserPlanController
+
+  4. ChannelService.php     ← Channel CRUD + subscriber
+     Services: Admin\ChannelController, SubscriberController
+
+  5. ReelService.php        ← Reel CRUD + saved audio
+     Services: Admin\ManageReelController,
+     ManageSavedAudioController
+
+  6. CommentService.php     ← Comments + reports + moderation
+     Services: Admin\CommentController,
+     CommentReportController, ModerationController
+
+  7. PlanService.php        ← Plans + OTT Plans + subscriptions
+     Services: Admin\PlanController, ManagePlanController,
+     OttPlanController
+
+  8. GatewayService.php     ← Gateways + deposits + withdrawals
+     Services: Admin\AutomaticGatewayController,
+     ManualGatewayController, DepositController,
+     WithdrawalController, WithdrawMethodController
+
+  9. SecurityService.php    ← Security + IP block + strikes
+     Services: Admin\SecurityController,
+     NotInterestedController, ReportController
+
+  10. SettingService.php    ← Site settings + general + system
+      Services: Admin\SiteSettingController,
+      GeneralSettingController, SystemController,
+      CronConfigurationController, ExtensionController,
+      LanguageController
+
+  11. MarketingService.php  ← Ads + banners + campaigns
+      Services: Admin\BannerAdController,
+      ManageAdvertisementController, AdvanceAdsController,
+      ManageAdvertiserController, CampaignController
+
+  12. ContentService.php    ← Frontend sections + SEO + pages
+      Services: Admin\FrontendController,
+      PageBuilderController, NotificationController,
+      OnboardingController, AnalyticsController,
+      GrowthController, MonetizationController
+
+  ╔══════════════════════════════════════════════════════════╗
+  ║  GROUP 2: MARKETPLACE SERVICES                           ║
+  ╚══════════════════════════════════════════════════════════╝
+
+  Create 5 service files:
+
+  13. MarketTalentService.php    ← Talent CRUD
+       Services: Admin\MarketController,
+       MarketServiceController, MarketPortfolioController,
+       MarketGalleryController
+
+  14. MarketContactService.php   ← Contacts + messages
+       Services: Admin\MarketContactController
+
+  15. MarketTransactionService.php ← Marketplace payments
+       Services: Admin\MarketTransactionController
+
+  16. MarketSubscriptionService.php ← Marketplace subs
+
+  ╔══════════════════════════════════════════════════════════╗
+  ║  SUMMARY                                                ║
+  ╚══════════════════════════════════════════════════════════╝
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  Total Admin Controllers:  59                           │
+  │  Services to create:       16                           │
+  │  (12 grouped CRUD + 4 marketplace)                     │
+  │  Base template:            SimpleCrudService.php        │
+  └─────────────────────────────────────────────────────────┘
+
+  Each service consolidates multiple controllers that share
+  the same domain. E.g., VideoService handles VideoController,
+  ManageVideoController, VideoProcessingController, etc.
+
+══════════════════════════════════════════════════════════════
+  ⚠  DO'S & DON'TS
+══════════════════════════════════════════════════════════════
+
+  ✅ DO's:
+  • Keep existing Admin controllers exactly as they are —
+    DO NOT move, rename, or refactor them unless explicitly told.
+  • Apply this pattern ONLY to NEW controllers going forward.
+  • Keep business logic in Services; controllers only handle
+    request/response.
+  • Use FormRequest classes for validation in new controllers.
+  • Use Gate::authorize() or $this->authorize() for permissions.
+  • Always return consistent responses: view() or redirect().
+
+  ❌ DON'Ts:
+  • DON'T touch existing controllers like AdminController,
+    VideoController, UserController, DashboardController, etc.
+    They work fine.
+  • DON'T delete or modify existing routes in web.php.
+  • DON'T change existing model relationships or table structures.
+  • DON'T remove existing helper functions (gs(), activeTemplate(),
+    fileUploader(), getPaginate(), getTrx(), etc.) — they are
+    used everywhere.
+  • DON'T replace existing helper-based logic with service-based
+    logic in old controllers — only new controllers use services.
+  • DON'T change the way $notify[] or ->withNotify() works in
+    existing controllers — that's the project-wide standard.
+  • DON'T rename existing namespaces or class names.

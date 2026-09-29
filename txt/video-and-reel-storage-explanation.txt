@@ -1,0 +1,326 @@
+================================================================================
+VIDEO & REEL STORAGE / COMPRESSION EXPLANATION
+Project : new-youtube (Binteo clone)
+Built on: Laravel 13, MySQL, Bunny.net Stream (video CDN), FFmpeg (local transcoding)
+================================================================================
+
+TABLE OF CONTENTS
+  1.  High-level summary
+  2.  Where files physically live
+  3.  VIDEOS - how they are stored
+  4.  VIDEOS - compression / transcoding
+  5.  VIDEOS - delivery & playback
+  6.  REELS  - how they are stored
+  7.  REELS  - compression / mixing
+  8.  REELS  - delivery & playback
+  9.  Database columns that matter
+  10. Key files for reference
+  11. Short FAQ
+
+
+================================================================================
+1. HIGH-LEVEL SUMMARY
+================================================================================
+- Videos ("long-form") can be stored in TWO ways:
+    (A) Bunny.net Stream (recommended / used by the web uploader UI).
+        The RAW file goes straight from the browser to Bunny's servers (TUS
+        upload). Bunny itself transcodes/compresses it into adaptive-bitrate
+        HLS. Your server only keeps the metadata + the Bunny video GUID.
+    (B) Local server storage (older/legacy path used by admin controllers).
+        The RAW file is uploaded to your own server into
+        "public/assets/videos/" and is later compressed/re-encoded by an
+        FFmpeg job (ProcessVideo) into 3 HLS variants, still on your server.
+
+- Reels ("short form") ALWAYS go through Bunny Stream for playback, BUT the
+  raw file is also kept locally so an FFmpeg job (CompressReel) can compress
+  it AND mix in music/duet audio before re-uploading the final mp4 to Bunny.
+
+- SO: yes, both videos and reels have COMPRESSION.
+    * Videos  -> compressed by Bunny Stream (CDN path) OR by FFmpeg HLS
+                 transcoding (local path).
+    * Reels   -> compressed by FFmpeg (H.264, CRF 23) and then re-encoded +
+                 transcoded again by Bunny Stream.
+
+- Compression is LOSSY. Original source file is, for local video uploads,
+  kept alongside the compressed HLS output. For reels, the local compressed
+  copy is deleted after upload to Bunny (the Bunny copy becomes the source).
+
+
+================================================================================
+2. WHERE FILES PHYSICALLY LIVE
+================================================================================
+- Local videos :  public/assets/videos/...         (see getFilePath('video'))
+- Local reels  :  public/assets/videos/reel/...    (see getFilePath('reel'))
+- Processed HLS:  public/assets/videos/processed/<video_id>/<360p|720p|1080p>/...
+                  + master.m3u8
+- Thumbnails   :  public/assets/images/... + reelThumbnail folder
+- Music/audio  :  public/assets/videos/reelMusic/...
+- Bunny hosting:  https://<cdn-hostname>/<bunny-library-id>/ (HLS playlist,
+                  play_1080p.mp4, thumbnail.jpg, preview.webp, mp4 renditions)
+  => Bunny Stream libraries: a "video" library and a separate "reel" library.
+
+NOTE: "getFilePath()" comes from app/helpers.php which delegates to the
+FileManager class (app/Lib/FileManager.php) - that class defines each media
+type's folder + allowed size/extensions.
+
+
+================================================================================
+3. VIDEOS - HOW THEY ARE STORED
+================================================================================
+PATH (A) WEB UPLOAD -> BUNNY STREAM  (primary path, used by the frontend UI)
+  Source: app/Services/Frontend/UploadService.php
+    - prepareUpload()
+        1. Creates the DB row (Video model) with bunny_id / bunny_status,
+           leaves video_path = '' (no local file kept).
+        2. Calls Bunny Stream API to create an empty video slot
+           (BunnyStreamService::createVideo()), receives a GUID.
+        3. Returns TUS upload params (signature, expiry, endpoint) to the
+           browser: BunnyStreamService::getTusUploadParams().
+        4. The browser then streams the RAW file straight to
+           https://video.bunnycdn.com/tusupload (resumable).
+    - checkStatus()  (polled by JS)
+        - Queries Bunny API. When encodeProgress = 100 / status = 4, marks
+          bunny_status = 'ready' and status = published.
+        - Bunny transcodes the uploaded RAW file into multiple renditions
+          (240p..1080p+) + HLS playlists on THEIR side. This IS the
+          compression for this path. Your server never sees the byte stream.
+
+PATH (B) SERVER UPLOAD -> LOCAL  (legacy path, admin controllers)
+  Source: app/Services/Frontend/VideoService.php::store()
+          app/Http/Controllers/Admin/{VideoController,ManageVideoController}.php
+    - $videoPath = fileUploader($file, getFilePath('video'));
+        -> stores ORIGINAL file under public/assets/videos/... (no size
+           limit set => no forced compression at upload time).
+    - Thumbnails (if provided) stored under assets/images/thumbnail/...
+    - Then ProcessVideo job is dispatched to do the compression.
+    - video_path (original) and hls_path (compressed) are both kept in DB.
+
+  Wait: why two ways? PATH B was the original implementation; PATH A was
+  added so large files don't have to pass through the PHP/Laragon server.
+  A video created via PATH A keeps video_path empty and only has a bunny_id.
+
+
+================================================================================
+4. VIDEOS - COMPRESSION / TRANSCODING
+================================================================================
+PATH A (Bunny): Compression is 100% server-side by Bunny Stream.
+  - Adaptive Bitrate Streaming (ABR): Bunny generates HLS + DASH + MP4
+    renditions at several resolutions/bitrates. No code in this repo to do
+    that - it's Bunny's built-in encoding.
+
+PATH B (Local FFmpeg -> HLS): app/Jobs/ProcessVideo.php
+  - Finds the original local file.
+  - FIRST calls ffmpeg to extract duration and (if missing) generate a
+    thumbnail frame at 00:00:05.
+  - Then loops 3 variants and runs a command like:
+      ffmpeg -i <original>
+             -s 640x360  -c:v libx264 -b:v 800k  ... (360p)
+             -s 1280x720 -c:v libx264 -b:v 2500k ... (720p)
+             -s 1920x1080 -c:v libx264 -b:v 5000k ... (1080p)
+             -g 48 -keyint_min 48 -sc_threshold 0   (keyframes every 2s)
+             -c:a aac -b:a 128k
+             -f hls -hls_time 4 -hls_playlist_type vcd -hls_segment_filename ...
+  - Output: public/assets/videos/processed/<video_id>/<label>/segment_XXX.ts
+            + a master.m3u8 built manually that references the 3 variant
+              playlists with their BANDWIDTH/RESOLUTION.
+  - Afterwards: video.hls_path = <master.m3u8>, video.status = 'ready'.
+  - Bitrate table used:
+        360p  -> 800 kbps video (resolution 640x360)
+        720p  -> 2500 kbps video (resolution 1280x720)
+        1080p -> 5000 kbps video (resolution 1920x1080)
+        audio -> AAC 128 kbps
+  - CRITICAL: FFmpeg must exist on the server for PATH B. Path resolution is
+    in getFFmpegPath(): GeneralSetting.ffmpeg_path, else 'where/which ffmpeg'.
+    If FFmpeg is missing, the job logs "Video file not found / HLS failed"
+    and falls back to status 'ready' with only the ORIGINAL (uncompressed)
+    file - playback then streams the big raw file.
+
+  IMPORTANT: The ORIGINAL file is NOT deleted in PATH B - both original
+  (video_path) and compressed (hls_path) coexist and consume disk space.
+
+
+================================================================================
+5. VIDEOS - DELIVERY & PLAYBACK
+================================================================================
+Model: app/Models/Video.php
+  - isBunnyVideo(): true if video.bunny_id is set.
+  - getVideoUrl():
+        Bunny  -> https://<cdn>/<bunny_id>/play_1080p.mp4 (direct MP4)
+        Local  -> asset(assets/videos/<video_path>)         (original file)
+  - getPlayUrl() (used by the HTML5 player):
+        Bunny  -> BunnyStreamService::generateSignedUrl($bunny_id)
+                  = https://<cdn>/<bunny_id>/playlist.m3u8?token=...&expires=...
+                  (HLS adaptive streaming with token-protected URLs)
+        Local  -> null (unless you implement HLS serving locally)
+  - Thumbnails:
+        Bunny  -> https://<cdn>/<bunny_id>/thumbnail.jpg / preview.webp
+        Local  -> assets/images/thumbnail/<thumbnail_path>
+  - published scope only exposes Bunny videos when bunny_status = 'ready',
+    and local videos when status in [published, ready].
+
+
+================================================================================
+6. REELS - HOW THEY ARE STORED
+================================================================================
+Source: app/Services/Frontend/UploadService.php
+        (prepareReelUpload around line ~200, uploadReelDirect around ~523)
+        app/Services/Frontend/ReelService.php::store()
+        app/Jobs/CompressReel.php
+
+  STEP 1 - Create DB row + Bunny slot:
+      - A Reel record is created (status published or draft, is_compressed
+        = false, compression_status = 0).
+      - A video slot is reserved in the REEL Bunny library
+        (BunnyStreamService::useReelLibrary()->createVideo()) -> bunny_id.
+      - TUS params are returned, the browser uploads the RAW video to Bunny.
+
+  STEP 2 - Raw file ALSO saved locally:
+      - uploadReelDirect() does fileUploader($file, getFilePath('reel'))
+        => public/assets/videos/reel/<file>.mp4 and saves video_path.
+      - (ReelService::store() likewise stores locally, then dispatches.)
+
+  STEP 3 - CompressReel job is dispatched immediately after upload:
+      - Found at app/Jobs/CompressReel.php (tries=3, timeout=300s)
+      - marks compression_status = 1 (processing)
+
+
+================================================================================
+7. REELS - COMPRESSION / MIXING  (app/Jobs/CompressReel.php)
+================================================================================
+  a) Locate input video:
+       - Local file public/assets/videos/reel/<video_path>.
+       - If missing locally, downloads the original from Bunny Stream
+         (https://video.bunnycdn.com/library/<reelLib>/videos/<bunny_id>/download).
+
+  b) Prepare music (if any):
+       - music_source = 'global'/'original' & global_music_url: download
+         track (local copy of a global song OR from Bunny/external).
+       - music_source = 'upload' & audio_path: use local reelMusic file.
+       - music_id: fetch ReelMusic track and download its file.
+     Detects whether the video already has an audio track.
+
+  c) Duet mode (reel.parent_id set):
+       - Downloads the PARENT reel's rendition (play_480p/720p/360p/1080p.mp4)
+         so parent + camera feed are stacked side-by-side with hstack, each
+         scaled to 360x1280 @30fps, then amix audio (parent + mic + music).
+
+  d) Standard mode FFmpeg command (this IS the compression):
+       ffmpeg -i <input>
+              [music input + -filter_complex amix(volume-balanced audio)]
+              -vcodec libx264 -preset ultrafast -crf 23
+              -c:a aac -b:a 192k -y <output>
+     => output: <name>_compressed.mp4  (H.264, CRF 23 = good quality,
+        much smaller than the raw phone upload).
+
+  e) Upload compressed file back to Bunny Stream:
+       - Deletes the FIRST Bunny slot (the raw upload), creates a NEW video
+         entry, pushes the compressed mp4 (binary PUT, timeout 600s).
+       - Updates: compressed_video_path, is_compressed = true,
+         compression_status = 2 (done), lesson bunny_status = 'processing'
+         (Bunny will re-encode it again into HLS renditions).
+
+  f) Cleanup:
+       - Temp music/duet files are deleted.
+       - The local RAW reel file (@unlink inputPath) and local compressed
+         file are deleted AFTER the Bunny upload - only Bunny keeps the video.
+
+  g) On failure: compression_status = 3 (failed); the reel still plays from
+     the RAW Bunny slot until compression succeeds/retries.
+
+  is_compressed / compression_status states:
+       0 = pending, 1 = processing, 2 = done, 3 = failed
+  (defined in the migration 2026_04_22_121500_create_reels_module_tables.php)
+
+
+================================================================================
+8. REELS - DELIVERY & PLAYBACK
+================================================================================
+Model: app/Models/Reel.php
+  - isBunnyReel(): true if reel.bunny_id set (always true for web uploads).
+  - getVideoUrl():
+        Bunny  -> https://<cdn>/<bunny_id>/play_1080p.mp4
+        Local  -> assets/videos/reel/<compressed_video_path or video_path>
+  - getPlayUrl():
+        Bunny  -> https://<cdn>/<bunny_id>/playlist.m3u8  (HLS)
+  - thumbnailUrl() / getPreviewUrl():
+        Bunny  -> https://<cdn>/<bunny_id>/thumbnail.jpg / preview.webp
+  - published scope: Bunny reels appear only when bunny_status = 'ready'.
+  - ReelService::index() hides non-ready reels ("processing UI").
+
+
+================================================================================
+9. DATABASE COLUMNS THAT MATTER
+================================================================================
+videos table:
+  - video_path        : local original path (empty for Bunny-only uploads)
+  - hls_path          : master.m3u8 for the FFmpeg-HLS transcoded version
+  - bunny_id          : Bunny Stream GUID (empty for local-only uploads)
+  - bunny_status      : uploading | processing | ready
+  - status            : draft | published | ready
+  - duration          : filled by ProcessVideo (from FFmpeg)
+  - thumbnail_path    : local thumbnail; thumb_image for admin uploads
+
+reels table:
+  - video_path        : original local file (raw phone/uploader file)
+  - compressed_video_path : <name>_compressed.mp4 (FFmpeg output, then Bunny)
+  - is_compressed     : boolean flag
+  - compression_status: 0 pending / 1 processing / 2 done / 3 failed
+  - bunny_id          : Bunny Stream GUID (REEL library)
+  - bunny_status      : uploading | processing | ready
+  - music_source      : none | global | original | upload
+  - mic_volume / music_volume : audio mix levels used by CompressReel
+  - parent_id / is_duet / original_reel_id : duet relationships
+
+
+================================================================================
+10. KEY FILES FOR REFERENCE (paths relative to project root)
+================================================================================
+  - app/Services/Frontend/UploadService.php    -> Bunny TUS init + direct uploads
+  - app/Services/BunnyStreamService.php        -> all Bunny Stream API calls + TUS
+  - app/Jobs/ProcessVideo.php                  -> local video HLS transcode job
+  - app/Jobs/CompressReel.php                  -> reel compress + music-mix job
+  - app/Services/Frontend/VideoService.php     -> legacy local video upload
+  - app/Services/Frontend/ReelService.php      -> legacy local reel upload
+  - app/Services/Admin/VideoService.php        -> admin video upload/edit
+  - app/Services/Admin/ReelService.php         -> admin reel upload/edit
+  - app/Models/Video.php / app/Models/Reel.php -> URL/status helpers
+  - app/helpers.php (fileUploader, getFilePath, getFileSize)
+  - app/Lib/FileManager.php                    -> per-type folder/size rules
+  - config/bunny.php + .env                    -> Bunny keys
+  - database/migrations/2026_04_22_121500_create_reels_module_tables.php
+
+
+================================================================================
+11. SHORT FAQ
+================================================================================
+Q1. Is a raw upload ever compressed by this code?
+    - Reels: YES - FFmpeg CRF23 H.264 in CompressReel job.
+    - Local videos: YES - FFmpeg HLS (360p/720p/1080p fixed bitrates) in
+      ProcessVideo job.
+    - Bunny videos: NO local compression; Bunny Cloud transcodes server-side.
+
+Q2. Where is the compression turned off / toggled?
+    - There is no per-file toggle. Compression depends on:
+        * FFmpeg being installed & reachable (GeneralSetting.ffmpeg_status,
+          ffmpeg_path; check admin route admin/check/ffmpeg).
+        * Queue workers running (CompressReel / ProcessVideo are queued jobs).
+      If FFmpeg is missing or queues are down, files remain RAW/uncompressed.
+
+Q3. Does compression lose the original?
+    - Local videos: original is KEPT (video_path) + HLS (hls_path).
+    - Reels: original local file is DELETED after Bunny upload; the Bunny
+      copy becomes the master (compressed). So recovery of the ORIGINAL raw
+      phone file is not possible once CompressReel completed successfully.
+
+Q4. Which one is used in production?
+    - The web uploader UI uses Bunny Stream (PATH A) for videos and
+      uid Reels (bunny_id). Bunny streams via HLS.
+    - Admin panels can choose local upload (PATH B) for videos.
+
+Q5. Cost / disk implication?
+    - Local path: storage grows on your server (raw + HLS segments).
+    - Bunny path: storage + encoding billed by Bunny, but minimal server
+      disk usage and global CDN delivery.
+================================================================================
+End of file
+================================================================================

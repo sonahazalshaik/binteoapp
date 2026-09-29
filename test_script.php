@@ -1,0 +1,25 @@
+<?php
+require 'vendor/autoload.php';
+$app = require_once 'bootstrap/app.php';
+$app->make('Illuminate\Contracts\Console\Kernel')->bootstrap();
+$user = \App\Models\User::first();
+\App\Models\Video::where('slug', 'test-slug-123')->delete();
+$video = new \App\Models\Video();
+$video->title = 'Test Video';
+$video->user_id = $user->id;
+$video->slug = 'test-slug-123';
+$video->status = 'published';
+$video->video_path = 'dummy.mp4';
+$video->save();
+echo 'Created Video ID: ' . $video->id . "\n";
+$comment = new \App\Models\Like();
+$comment->video_id = $video->id;
+$comment->user_id = $user->id;
+$comment->save();
+echo 'Created Like ID: ' . $comment->id . "\n";
+echo 'Deleting with assets... ';
+$video->deleteWithAssets();
+echo "Done!\n";
+$check = \App\Models\Video::find($video->id);
+if (!$check) echo "Video successfully completely removed from database.\n";
+else echo "Failed to remove.\n";

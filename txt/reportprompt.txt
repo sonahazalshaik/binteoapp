@@ -1,0 +1,709 @@
+# BINTEO Project – Complete Video Upload System Investigation Report
+
+I need you to perform a **complete investigation and generate a detailed technical report of the current project's video and reel upload system**.
+
+## IMPORTANT
+
+**DO NOT MODIFY ANY CODE.**
+
+Do not fix anything, refactor anything, rollback anything, change configuration, or install anything.
+
+This is **REPORT / INVESTIGATION ONLY**.
+
+I need to understand exactly how the current implementation works before deciding whether to keep the current implementation or rollback to the previous implementation.
+
+---
+
+# 1. Complete Upload Architecture
+
+Trace the complete upload architecture from:
+
+```text
+User selects video
+→ Frontend
+→ prepare upload
+→ Bunny video creation
+→ TUS configuration
+→ TUS upload
+→ Bunny processing
+→ status polling
+→ ready/published
+```
+
+Explain every step and identify:
+
+* frontend file
+* JavaScript/Alpine function
+* Laravel route
+* controller
+* service
+* database operation
+* Bunny API request
+* TUS request
+* processing job
+* status endpoint
+
+---
+
+# 2. Video Upload Flow
+
+Analyze the complete video upload flow.
+
+Specifically inspect:
+
+* `resources/views/frontend/videos/create.blade.php`
+* `app/Http/Controllers/Web/BunnyUploadController.php`
+* `app/Services/Frontend/UploadService.php`
+* `app/Services/BunnyStreamService.php`
+* relevant routes
+* Video model
+* relevant migrations
+
+Document:
+
+### File selection
+
+* How the file is selected
+* MIME handling
+* duration detection
+* preview generation
+* same-file re-selection handling
+
+### Prepare upload
+
+Explain exactly what happens when:
+
+```text
+POST /videos/prepare-upload
+```
+
+is called.
+
+Document:
+
+* validation
+* Bunny video creation
+* Bunny GUID generation
+* local database record creation
+* slug generation
+* pricing/visibility handling
+* TUS signature generation
+* returned JSON
+
+---
+
+# 3. Reel Upload Flow
+
+Analyze the complete reel upload flow.
+
+Inspect:
+
+* `resources/views/frontend/reels/create.blade.php`
+* relevant controllers
+* services
+* models
+* jobs
+* routes
+
+Document:
+
+* gallery upload
+* camera recording
+* TUS upload
+* reel processing
+* compression
+* music handling
+* duet handling
+* status polling
+
+---
+
+# 4. TUS Configuration
+
+Determine the exact current TUS configuration.
+
+Report:
+
+* TUS endpoint
+* direct Bunny or proxy
+* chunking enabled/disabled
+* exact `chunkSize`
+* retry delays
+* fingerprint configuration
+* `storeFingerprintForResuming`
+* TUS headers
+* upload ID handling
+* Bunny video ID handling
+* Location header handling
+
+Show the actual current architecture:
+
+```text
+Browser
+   ↓
+?
+   ↓
+?
+   ↓
+Bunny
+```
+
+Do not assume anything.
+
+---
+
+# 5. Direct Bunny vs TUS Proxy
+
+Determine whether the current project uses:
+
+```text
+Browser → Bunny directly
+```
+
+or:
+
+```text
+Browser → /tus-proxy → Bunny
+```
+
+or both.
+
+Inspect:
+
+* `TusProxyController`
+* routes
+* Bunny service
+* frontend TUS configuration
+
+Explain why the current implementation uses the chosen architecture.
+
+Also identify when the project changed from the previous architecture, if Git history is available.
+
+---
+
+# 6. 409 Conflict Investigation
+
+Investigate every piece of code related to:
+
+```text
+409 Conflict
+Upload-Offset
+HEAD
+PATCH
+TUS retry
+```
+
+Determine:
+
+* where 409 is generated
+* whether Bunny generates it
+* how the application handles it
+* whether the proxy modifies it
+* whether HEAD is used
+* how `Upload-Offset` is obtained
+* how the next PATCH offset is determined
+* retry count
+* whether retries can become infinite
+* whether a new Bunny upload is created after 409
+
+Specifically investigate the previously observed:
+
+```text
+Upload-Offset: 2
+```
+
+Determine whether this value is:
+
+* actually returned by Bunny
+* modified by the proxy
+* incorrectly interpreted by the frontend
+* caused by another part of the implementation
+
+Do not guess.
+
+---
+
+# 7. MOST IMPORTANT: SAME VIDEO UPLOAD PROBLEM
+
+Investigate this exact scenario:
+
+```text
+User uploads Video A
+        ↓
+Upload completes
+        ↓
+Bunny starts processing Video A
+        ↓
+User uploads the same Video A again
+        ↓
+Second upload fails
+```
+
+Trace the first upload and second upload separately.
+
+Determine exactly what happens for:
+
+### Upload #1
+
+```text
+Filename
+Local video ID
+Bunny video GUID
+TUS upload ID
+TUS URL
+Fingerprint
+Upload state
+Bunny processing state
+```
+
+### Upload #2
+
+Record the same information.
+
+Compare them.
+
+I specifically need to know whether the second upload receives:
+
+* a NEW local video record
+* a NEW Bunny video GUID
+* a NEW TUS upload ID
+* a NEW TUS upload URL
+* a NEW upload object
+* a NEW fingerprint
+* a NEW upload state
+
+Determine whether anything from Upload #1 is being reused by Upload #2.
+
+---
+
+# 8. Duplicate Filename / Video Investigation
+
+Search the entire project for logic involving:
+
+* filename uniqueness
+* title uniqueness
+* slug uniqueness
+* `bunny_id`
+* duplicate videos
+* existing processing videos
+* existing draft videos
+* upload locks
+* user upload restrictions
+
+Determine whether uploading:
+
+```text
+A.mp4
+A.mp4
+```
+
+is officially supported by the current code.
+
+Identify any database unique indexes or application validation that could prevent it.
+
+---
+
+# 9. Frontend Upload State
+
+Inspect all frontend state related to uploading.
+
+Search for:
+
+```text
+upload
+currentUpload
+tusUpload
+uploadInProgress
+isUploading
+uploading
+selectedFile
+videoId
+bunnyId
+fingerprint
+reset
+startUpload
+onVideoChange
+removeVideo
+```
+
+Determine whether the second upload can accidentally reuse the first upload's:
+
+* JavaScript object
+* TUS object
+* Bunny ID
+* upload URL
+* offset
+* fingerprint
+* state
+
+---
+
+# 10. Queue Configuration
+
+Determine the current:
+
+```env
+QUEUE_CONNECTION=
+```
+
+Then trace:
+
+* `ProcessVideo`
+* `CompressReel`
+* other upload-related jobs
+
+Explain whether Laravel queues are involved in the actual TUS upload.
+
+Also explain whether queue configuration could cause the specific problem:
+
+```text
+Video A processing
+→ Video A uploaded again
+→ second upload fails
+```
+
+Do not modify queue configuration.
+
+---
+
+# 11. Bunny Processing Flow
+
+Trace what happens after Bunny receives the video.
+
+Document:
+
+```text
+uploading
+→ processing
+→ ready
+→ error
+```
+
+Determine:
+
+* how Bunny processing status is checked
+* which endpoint is used
+* how `encodeProgress` is handled
+* how local `bunny_status` changes
+* whether a video being `processing` can block another upload
+
+---
+
+# 12. Database Investigation
+
+Inspect the relevant:
+
+* Video model
+* Reel model
+* migrations
+* relationships
+* unique indexes
+* scopes
+* upload-related fields
+
+Document important fields such as:
+
+* `bunny_id`
+* `bunny_status`
+* `status`
+* `slug`
+* `user_id`
+* processing fields
+
+Determine whether any database rule could prevent the second upload.
+
+---
+
+# 13. Fallback Upload
+
+Inspect:
+
+* `DirectUploadController`
+* `UploadService::uploadVideoDirect()`
+* related routes
+
+Explain:
+
+* when fallback is triggered
+* how the file reaches Bunny
+* whether fallback creates a new Bunny video
+* whether fallback can create duplicates
+* whether fallback is actually reachable from the current frontend
+
+---
+
+# 14. Git History
+
+If Git history is available, investigate the previous implementation.
+
+Identify:
+
+1. Last known-working direct Bunny TUS implementation
+2. Commit that introduced `/tus-proxy`
+3. Commit that added 409 retry logic
+4. Commit that changed TUS configuration
+5. Commit that changed `QUEUE_CONNECTION`
+6. Any changes made around the time the intermittent problem started
+
+Do NOT revert anything.
+
+Only report the history and differences.
+
+---
+
+# 15. Logs and Errors
+
+Inspect available Laravel logs and project logs.
+
+Search for:
+
+```text
+409
+Conflict
+Upload-Offset
+Bunny
+TUS
+upload
+SQLSTATE
+duplicate
+processing
+exception
+timeout
+```
+
+Identify the exact error produced when the second upload fails.
+
+If the logs don't contain enough information, clearly state what information is missing.
+
+---
+
+# 16. Scalability Assessment
+
+Based on the actual implementation, explain how the current system behaves if:
+
+```text
+10 users upload simultaneously
+100 users upload simultaneously
+1,000 users upload simultaneously
+```
+
+Analyze:
+
+* browser → Bunny traffic
+* Laravel server bandwidth
+* proxy bandwidth
+* Bunny capacity
+* TUS chunking
+* Laravel queues
+* FFmpeg processing
+* database load
+
+Do not make unsupported claims.
+
+Clearly distinguish:
+
+**upload scalability**
+
+from:
+
+**video processing scalability**.
+
+---
+
+# 17. SECURITY REVIEW
+
+Report the current upload security:
+
+* authentication
+* authorization
+* TUS signature
+* Bunny API key exposure
+* upload ownership
+* rate limiting
+* validation
+* MIME handling
+* file restrictions
+
+Do not modify anything.
+
+---
+
+# 18. PERFORMANCE REVIEW
+
+Report:
+
+* chunk size
+* TUS retry strategy
+* direct vs proxy upload
+* server bandwidth usage
+* Bunny CDN usage
+* processing strategy
+* database impact
+
+---
+
+# 19. FINAL ROOT-CAUSE ANALYSIS
+
+At the end, provide a clear conclusion.
+
+Answer these questions individually:
+
+### Question 1
+
+**Why does uploading the same video again while the first copy is processing fail?**
+
+### Question 2
+
+**Is chunking responsible for this problem?**
+
+Answer:
+
+```text
+YES / NO / UNKNOWN
+```
+
+and explain why.
+
+### Question 3
+
+**Is `/tus-proxy` responsible for this problem?**
+
+Answer:
+
+```text
+YES / NO / UNKNOWN
+```
+
+and provide evidence.
+
+### Question 4
+
+**Is `QUEUE_CONNECTION=sync` responsible?**
+
+Answer:
+
+```text
+YES / NO / UNKNOWN
+```
+
+and explain.
+
+### Question 5
+
+**Should we keep TUS chunking?**
+
+Answer:
+
+```text
+KEEP / REMOVE
+```
+
+and explain based on the actual project.
+
+### Question 6
+
+**Should we keep the current proxy architecture?**
+
+Answer:
+
+```text
+KEEP / ROLLBACK / NEED MORE EVIDENCE
+```
+
+and explain.
+
+### Question 7
+
+**Should we restore the previous direct Bunny TUS implementation?**
+
+Answer:
+
+```text
+YES / NO / NEED MORE EVIDENCE
+```
+
+and explain.
+
+### Question 8
+
+**What is the smallest and safest fix?**
+
+Give the recommended solution without implementing it.
+
+---
+
+# 20. REPORT FORMAT
+
+Structure the final report as:
+
+```text
+1. Executive Summary
+
+2. Current Architecture
+
+3. Video Upload Flow
+
+4. Reel Upload Flow
+
+5. TUS Configuration
+
+6. Direct Bunny vs Proxy
+
+7. 409 Investigation
+
+8. Same-Video Concurrent Upload Investigation
+
+9. Bunny Processing Flow
+
+10. Database Investigation
+
+11. Queue Investigation
+
+12. Fallback Upload
+
+13. Git History
+
+14. Logs / Errors
+
+15. Security
+
+16. Performance
+
+17. Scalability
+
+18. Root Cause
+
+19. Recommended Solution
+
+20. Confidence Level
+```
+
+For every important conclusion, provide:
+
+```text
+File:
+Function:
+Relevant code/logic:
+Observed behavior:
+Conclusion:
+```
+
+## FINAL RULE
+
+This is a **read-only investigation**.
+
+**DO NOT MODIFY ANY FILES.**
+
+I want a factual report of what the current project actually does and the evidence for the root cause.
+
+Do not guess.
+
+Do not automatically recommend removing chunking.
+
+Do not automatically recommend rollback.
+
+Do not automatically blame the proxy.
+
+Do not automatically blame `QUEUE_CONNECTION=sync`.
+
+First inspect the actual project and provide the report.

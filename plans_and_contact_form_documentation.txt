@@ -1,0 +1,142 @@
+================================================================================
+          BINTEO PLATFORM: MEMBERSHIP TIER SYSTEM & CONTACT MECHANICS
+                         COMPREHENSIVE CLIENT GUIDE
+================================================================================
+
+This document provides a highly detailed, non-technical handbook outlining:
+1. The three membership business lines (Marketplace User Plans, Creator Plans, and OTT Plans).
+2. The exact visitor vs. creator subscription relationships required to unlock contact features.
+3. The user experience and business rules of the Talent Contact Form.
+4. How plan database properties are dynamically rendered to users on the front end.
+
+--------------------------------------------------------------------------------
+1. THE THREE INDEPENDENT MEMBERSHIP BUSINESS LINES
+--------------------------------------------------------------------------------
+Binteo features three distinct monetization and access models, each designed for
+a specific category of users (Talent, Viewers, and Fans).
+
+--------------------------------------------------------------------------------
+A. MARKETPLACE USER PLANS (Admin URL: /admin/userplans)
+--------------------------------------------------------------------------------
+* TARGET AUDIENCE: Creators, Actors, Influencers, and Artists.
+* CORE PURPOSE: Enables marketplace talent to upgrade their profiles to gain 
+  exposure, acquire search visibility, and receive direct inquiries from industry 
+  professionals (e.g. Investors, Producers, casting agents).
+* KEY FEATURES & BUSINESS BENEFITS:
+  1. Profile Elevation (Featured Placement):
+     - Upgraded profiles are placed into high-visibility showcases, such as the
+       "Featured Profiles" carousels on the main marketplace pages.
+     - They rank higher in directory search results, making it easier for talent 
+       scouts to discover them.
+  2. Contact and Lead Generation:
+     - Unlocks contact options directly on the public profile, enabling casting 
+       agents or producers to initiate collaboration.
+     - Activates an integrated contact form to receive structured email inquiries 
+       (with sender's name, email, phone, and project details).
+     - Activates a secure, real-time message chat portal so logged-in users 
+       can hold direct messaging sessions back-and-forth.
+
+--------------------------------------------------------------------------------
+B. CREATOR PLANS (Admin URL: /admin/plans)
+--------------------------------------------------------------------------------
+* TARGET AUDIENCE: Dedicated Fans and Subscribers of specific creators.
+* CORE PURPOSE: A decentralized, creator-centric support model. Individual 
+  creators construct customized tiers for their specific channel, allowing fans
+  to subscribe directly to them.
+* KEY FEATURES & BUSINESS BENEFITS:
+  1. Exclusive Video Access:
+     - Unlocks premium videos, private playlists, behind-the-scenes content,
+       or early-release media uploaded by that specific creator.
+  2. Direct Creator Support:
+     - A portion of the membership fee supports the targeted creator, enabling
+       monetization of their specific follower base.
+
+--------------------------------------------------------------------------------
+C. OTT PLANS (Admin URL: /admin/ott-plans)
+--------------------------------------------------------------------------------
+* TARGET AUDIENCE: General Platform Viewers and Entertainment Consumers.
+* CORE PURPOSE: The primary platform-wide entertainment subscription model.
+* KEY FEATURES & BUSINESS BENEFITS:
+  1. Full Catalog Unlock (OTT Access):
+     - Unlocks unrestricted access to stream movies, original series, shows,
+       and other general media hosted across the entire platform.
+     - Operates similarly to mainstream subscription video-on-demand services 
+       (like Netflix or Prime Video).
+
+--------------------------------------------------------------------------------
+2. DYNAMIC FRONT-END RENDERING OF PLAN FEATURES & BADGES
+--------------------------------------------------------------------------------
+Rather than relying purely on static descriptions entered in the admin panel, the 
+front-end interfaces dynamically parse and render visual badges and feature line-items 
+based on plan settings.
+
+A. Marketplace User Plans card rendering (Dashboard -> Plans tab):
+   - Featured Creator Status (is_featured_plan): If toggled ON, the card renders
+     an orange star badge showing *"Featured Profile Placement"* at the top of the features list.
+   - Contact Access (contact_access): If toggled ON, the card renders an indigo 
+     mail badge showing *"Direct Contact & Live Messaging"* at the top of the features list.
+
+B. Creator Plans card rendering (/client/plans):
+   - Featured Tier Status (is_featured_plan): If toggled ON, the card renders a 
+     distinct orange badge labeled *"Featured Tier Access"* at the top of the features list.
+   - Video Access (video_access): If toggled ON, a green check circle is displayed 
+     with *"Premium Content"*. If toggled OFF, a red cross is shown and the text is 
+     crossed out.
+
+C. OTT Plans card rendering (/mini-ott and /ott-plans):
+   - OTT Access (ott_access): A dedicated row displays *"OTT Media Streaming"*. 
+     If toggled ON, it displays with a green checkmark and highlighted text. If toggled OFF,
+     it displays with a red cross, muted colors, and a strike-through.
+   - Wrapping Logic: Long descriptions wrap cleanly (no truncation with dots) so 
+     users on desktop/mobile can easily read the full details of what they are purchasing.
+
+--------------------------------------------------------------------------------
+3. THE DETAILED TWO-WAY ACCESS LOGIC FOR THE PORTFOLIO CONTACT FORM
+--------------------------------------------------------------------------------
+When a visitor views a public talent portfolio (for example: /m/demo-actor-2),
+the contact system operates on a dual-gate security check (both Creator Plan 
+status and Visitor Plan status).
+
+================================================================================
+GATE 1: DOES THE CREATOR HAVE THE REQUIRED PLAN? (TAB & BUTTON VISIBILITY)
+================================================================================
+The visibility of the Contact Tab and the Action Buttons (Message, Contact Now)
+on the profile is entirely controlled by the Creator's plan:
+
+1. Creator HAS an Active Marketplace User Plan with "Contact Access" enabled:
+   - The Contact Tab will be displayed in the profile's navigation tabs.
+   - The "Message" and "Contact Now" buttons will be displayed on the page.
+   
+2. Creator DOES NOT HAVE an Active Marketplace User Plan with "Contact Access" enabled:
+   - The Contact Tab is completely hidden from the page.
+   - The "Message" and "Contact Now" buttons are completely hidden from the page.
+   - (Result: Nobody can contact this creator or see their details).
+
+================================================================================
+GATE 2: DOES THE VISITOR HAVE THE REQUIRED PLAN? (TAB & BUTTON INTERACTION)
+================================================================================
+If Gate 1 is passed (the creator has enabled contact features on their profile),
+who can actually click the buttons and view details is checked:
+
+1. Visitor is NOT Logged In (Guest / Non-registered):
+   - The contact details (Email, Phone) display lock icons.
+   - Clicking the "Message" button redirects the visitor to the Login page.
+   - Clicking the "Contact Now" button triggers a "Premium Feature" alert 
+     prompting them to sign in and acquire an eligible plan.
+
+2. Visitor IS Logged In, but DOES NOT have an Active Creator Plan (No Premium Access):
+   - The contact details remain locked.
+   - Clicking "Message" or "Contact Now" triggers a premium lock alert:
+     "You need an active subscription to access direct contact details. Upgrade Plan"
+     which offers a link to buy a plan.
+   - They cannot submit the contact form.
+
+3. Visitor IS Logged In and HAS an Active Creator Plan (With Premium Access):
+   - All contact details (Email, Phone) are visible.
+   - The contact form is active and they can send email inquiries immediately.
+   - Direct messaging/chat is fully functional.
+
+4. Visitor is the Owner of the Profile (The Talent themselves):
+   - The creator always has 100% full preview access to their own profile, 
+     meaning they see all tabs and buttons unlocked without needing to buy a plan.
+================================================================================

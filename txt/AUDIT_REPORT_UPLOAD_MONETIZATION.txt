@@ -1,0 +1,504 @@
+================================================================
+BINTEO PROJECT - COMPREHENSIVE AUDIT REPORT
+Generated: 22 Aug 2026 | By: AI Sonu (ox-alpha)
+================================================================
+
+================================================================
+CLIENT-FACING SUMMARY: DIRECT BUNNY CDN UPLOAD ISSUES
+================================================================
+
+PREVIOUS STATE (WORKING FINE):
+- Direct TUS upload from browser -> video.bunnycdn.com/tusupload
+- Architecture: prepare-upload creates video in Bunny, returns TUS params
+  with endpoint = https://video.bunnycdn.com/tusupload
+- Browser uploaded chunks directly to Bunny CDN via TUS protocol
+- Server never touched video bytes (scalable, zero bandwidth cost)
+- This was the "Fast Uploading" implementation verified in 
+  SCALABILITY_FINAL_REPORT.txt (Section 1, Category: FAST UPLOADING)
+
+ISSUES THAT EMERGED ON MOBILE (ANDROID CHROME):
+1. CORS POLICY BLOCK: Browser blocked requests to video.bunnycdn.com
+   - Error: "Access to fetch at 'https://video.bunnycdn.com/tusupload' 
+     from origin 'https://binteodemo.of2on.org' has been blocked by 
+     CORS policy"
+   - Bunny dashboard "Allowed Domains" whitelist (binteodemo.of2on.org,
+     binteoapp.com, localhost) DID NOT RESOLVE the issue
+   - Root cause: Mobile Chrome strict CORS enforcement on cross-origin
+     TUS OPTIONS/PATCH requests with custom headers
+
+2. 409 CONFLICT ERRORS DURING CHUNK UPLOADS:
+   - PATCH requests returned HTTP 409 (Conflict) with wrong offset
+   - HEAD probe returned suspicious Upload-Offset: "2" (bytes)
+   - Client treated 409 as fatal -> triggered server fallback loop
+   - Result: Infinite CREATE + PATCH 409 retries, upload never completes
+
+3. BROWSER CACHE SERVING OLD TUS.JS CLIENT:
+   - Cached tus-js-client v3.0.0 without proxy endpoint config
+   - Fixed with ?v=2 cache-buster on script tag
+
+4. REVERB/PUSHER BROADCASTER CRASH:
+   - RuntimeException: "Failed to create broadcaster for connection 'reverb'"
+   - PUSHER_* env vars referenced commented-out REVERB_* vars (null)
+   - cURL error 7 spam: "Failed to connect to localhost:8080"
+   - Fixed: BROADCAST_CONNECTION=log, commented all PUSHER/REVERB vars
+
+5. JS SYNTAX ERROR IN REELS PAGE:
+   - Duplicate closing brace at line ~2855
+   - Uncaught SyntaxError blocked upload initialization
+
+6. FILE INPUT RE-SELECTION BUG:
+   - After canceling file picker, selecting same file did nothing
+   - Fixed: e.target.value = '' in onVideoChange handlers
+
+FIXES APPLIED (ALL IN PRODUCTION):
+A) Switched endpoint from direct Bunny to same-origin proxy:
+   BunnyStreamService.php: 'endpoint' => url('/tus-proxy')
+
+B) TusProxyController.php 409 auto-retry:
+   - On 409: HEAD to Bunny for actual offset -> retry PATCH at
+     correct offset -> return success to client (client never sees 409)
+
+C) Cache buster ?v=2 on tus-js-client script tags (both pages)
+
+D) Mobile MIME type fallback + e.target.value='' in create.blade.php
+   and reels/create.blade.php
+
+E) Removed duplicate brace in reels/create.blade.php
+
+F) Disabled Reverb broadcasting in .env (BROADCAST_CONNECTION=log)
+
+CURRENT STATUS:
+- Desktop uploads: WORKING (direct or proxy)
+- Mobile uploads: PROXY path active, 409 auto-retry implemented
+- Need client to re-test in incognito mobile Chrome and share logs
+- Suspicious HEAD offset "2" from Bunny under investigation
+- Fallback path (direct-upload via server) remains as safety net
+
+================================================================
+CONTENTS:
+1. Video Upload Process (Full Flow)
+2. Reel Upload Process (Full Flow)
+3. Security Measures (Video + Reel Uploads)
+4. Performance Optimizations
+5. Watchtime Logic (Monetization Tracking)
+6. Creator Monetization Logic (Complete)
+
+================================================================
+1. VIDEO UPLOAD PROCESS
+================================================================
+
+FLOW OVERVIEW:
+User Browser -> Alpine.js Form -> prepare-upload API -> Bunny 
+Stream API -> TUS Upload (direct/proxy) -> Thumbnail -> Publish
+
+STEP-BY-STEP:
+
+[STEP 1] FRONTEND FILE SELECTION
+File: resources/views/frontend/videos/create.blade.php
+- Alpine.js component "videoUpload()" manages 3-step wizard
+- onVideoChange() handles file input:
+  * Mobile MIME fix: if file.type is empty, detects extension 
+    (.mp4/.mov/.avi/.mkv/.webm/.3gp/.m4v) and sets type manually
+  * Creates ObjectURL for instant preview
+  * Auto-fills title from filename (skips generic names like 
+    "video", "image", "1000xxxx")
+  * Reads duration via <video> element metadata
+    (handles Chromium Infinity-duration bug via seek trick)
+
+[STEP 2] METADATA ENTRY
+- Title, Category (required), Language, Location, Description
+- Hashtag chips input (comma/space/enter separated)
+- Cover thumbnail upload (optional)
+
+[STEP 3] PUBLISH -> startUpload()
+- Validates title + category before proceeding
+- Shows SweetAlert2 loader with live speed/ETA
+
+BACKEND PREPARATION:
+Route: POST /videos/prepare-upload (throttle:upload middleware)
+Controller: app/Http/Controllers/Web/BunnyUploadController.php
+Service: app/Services/Frontend/UploadService.php::prepareUpload()
+
+Actions performed server-side:
+a) Validate inputs (title required max 255, category exists,
+   visibility in:0,1, pricing_tier in free/premium/exclusive)
+b) Create video placeholder in Bunny Stream:
+   POST https://video.bunnycdn.com/library/{libraryId}/videos
+   Payload: {title, collectionId}
+   Returns: {guid} -> saved as video.bunny_id
+c) Create local DB record:
+   - status = draft|published
+   - bunny_status = 'uploading'
+   - slug auto-generated (Str::slug + random suffix if dup)
+   - pricing logic applied (tier map: free=0, premium=1, exclusive=2)
+   - is_premium only if user hasPremiumAccess()
+d) Schedule support: schedule_date + schedule_time parsed in
+   Asia/Kolkata timezone, converted to app timezone
+e) Generate TUS signature:
+   SHA256(library_id + api_key + expiration + video_id)
+   Expiration = now + 24 hours
+f) Notify subscribers (DB + broadcast + Firebase job)
+g) Create AdminNotification entry
+h) Return JSON: {success, video_id, bunny_id, tus:{endpoint, headers}}
+
+TUS UPLOAD (Browser -> Bunny CDN):
+Library: tus-js-client v3.0.0 (CDN with ?v=2 cache-buster)
+Config:
+- endpoint: url('/tus-proxy') [same-origin proxy, fixes mobile CORS]
+- chunkSize: 2 MB
+- retryDelays: [0, 3000, 5000, 10000, 20000]
+- headers: AuthorizationSignature, AuthorizationExpire, VideoId,
+  LibraryId (from backend)
+- fingerprint: unique per attempt ('tus-unique-' + timestamp + rand)
+- storeFingerprintForResuming: false
+
+PROXY (app/Http/Controllers/TusProxyController.php):
+- create(): forwards POST to Bunny /tusupload, rewrites Location
+  header from /tusupload/{id} -> /tus-proxy/{id}
+- patch(): forwards chunk; ON 409 CONFLICT:
+  1. HEAD request to Bunny to get actual Upload-Offset
+  2. Retries PATCH at correct offset automatically
+  3. Returns final result to client (client never sees 409)
+- head(): forwards HEAD status check
+- options(): CORS preflight with full TUS header whitelist
+
+POST-UPLOAD SUCCESS:
+a) Thumbnail upload if selected: POST /videos/{slug}/thumbnail
+b) Success toast -> redirect to Studio Dashboard
+
+FALLBACK PATH (if TUS fails):
+- Logs error to backend via /upload/log-error
+- Automatic retry through server: POST /videos/direct-upload
+  DirectUploadController -> UploadService::uploadVideoDirect()
+  Server reads file and PUTs to Bunny library endpoint directly
+
+STATUS POLLING:
+GET /videos/{video}/status -> checks Bunny encodeProgress
+- status 4 or progress >=100 => bunny_status='ready', published
+- statuses 1,2,3 => processing
+- 5,6 => error
+
+LOCAL FALLBACK UPLOAD (non-Bunny legacy path):
+VideoService::store() -> saves locally -> ProcessVideo job:
+- FFmpeg extracts duration, generates thumbnail at 5s
+- Transcodes HLS variants: 360p(800k), 720p(2500k), 1080p(5000k)
+- Writes master.m3u8 playlist, marks status=ready
+
+================================================================
+2. REEL UPLOAD PROCESS
+================================================================
+
+FLOW OVERVIEW:
+Two modes: (A) Gallery Upload  (B) Live Camera Record
+-> Details step -> TUS to Bunny -> CompressReel job -> Ready
+
+MODE A - GALLERY UPLOAD:
+File: resources/views/frontend/reels/create.blade.php
+- accept="video/mp4,video/mov,video/webm"
+- Same mobile MIME fix as videos
+- Duration validation: reel must be <= 90 seconds
+  (checked via onloadedmetadata, auto-rejects longer files)
+- e.target.value='' after selection (allows same-file reselect)
+
+MODE B - LIVE RECORDING:
+- getUserMedia camera preview with filters/effects/stickers
+- MediaRecorder captures chunks, zoom slider, flash toggle
+- Flip camera (front/back), beauty mode, grid overlay
+- Recording ring progress vs maxDuration (15/30/60/90s cycles)
+- Pause/resume recording supported
+- Duet mode: splits screen 50/50 with parent reel playing
+
+DETAILS STEP:
+- Title, Description (#hashtags/@mentions auto-extracted),
+  Category, Language, Location
+- MUSIC SYSTEM (unique to reels):
+  * music_source options: none | global | library | upload
+  * Global: search modal -> select trending song (stores URL,
+    title, artist, thumbnail stripped of query strings to avoid
+    SQL 1406 errors)
+  * Library: ReelMusic table dropdown, increments usage_count
+  * Upload: audio file stored via fileUploader, custom name
+  * Volume controls: mic_volume + music_volume sliders
+  * Start-time trimmer slider for audio offset
+- Toggles: comments allowed, duet allowed, stitch allowed
+- 18+ age restriction flag
+
+BACKEND PREPARATION:
+Route: POST /reels/prepare-upload
+UploadService::prepareReelUpload():
+a) Creates placeholder in REEL collection (separate Bunny lib)
+b) DB record with all music fields, parent_id for duets,
+   is_duet flag, original_reel_id for attribution
+c) Extract hashtags: preg_match_all('/#([\w\p{L}]+)/u')
+d) Save ReelHashtag + ReelTag rows per hashtag
+e) Resolve @mentions to users -> ReelMention rows
+f) Generate TUS params (same signature scheme as videos)
+g) Notify subscribers + admin notification
+
+TUS UPLOAD: identical proxy flow as videos.
+
+POST-UPLOAD:
+CompressReel job dispatched:
+- Marks compression_status=1 (in-progress)
+- Processes/compresses video, downloads duet audio merges
+- compression_status: 1=processing, 2=done, 3=failed
+- bunny_status transitions: uploading -> processing -> ready
+
+STATUS CHECK: GET /reels/{reel}/status (same polling pattern)
+
+================================================================
+3. SECURITY MEASURES
+================================================================
+
+AUTHENTICATION & AUTHORIZATION:
+- Laravel session auth; all upload routes behind auth middleware
+- Ownership checks: auth()->id() != $video->user_id => 403
+- Channel required before upload page access
+- Premium tier gating: hasPremiumAccess() checked SERVER-SIDE
+  (client cannot set premium pricing without plan)
+
+INPUT VALIDATION:
+- All requests validated server-side (Laravel validator)
+- title: required|string|max:255
+- price: numeric|min:0
+- category_id: exists:categories,id
+- thumbnails: image|max:5120 (5MB cap)
+- type:in whitelists for enums (visibility, pricing_tier)
+
+CSRF PROTECTION:
+- @csrf blade directive on forms
+- X-CSRF-TOKEN header on all fetch/AJAX calls
+
+FILE SAFETY:
+- fileUploader() helper sanitizes filenames
+- Extension allowlist via accept attributes + server validation
+- Slugs generated via Str::slug (XSS-safe URLs)
+
+COPYRIGHT PROTECTION:
+- CopyrightStrike model per video AND per user
+- Video blocked if active strike OR owner has >=3 strikes
+- scopeActiveCreator excludes struck creators from feeds
+- isStruck()/getActiveStrikeId() used across services
+
+CONTENT ACCESS CONTROL:
+- Visibility field (public/private) enforced in global scopes
+- Private videos: 403 unless owner
+- Scheduled videos hidden until scheduled_at passes
+- Age restriction: is_age_restricted requires auth
+- Premium videos: purchase/subscription/OTT checks in show()
+
+CDN SECURITY:
+- TUS signatures: SHA256 hash with 24h expiry (no raw keys
+  exposed to client beyond scoped signature)
+- Signed playback URLs: token = sha256(key+path+expiry)
+- Bunny domain allowlist configured in dashboard
+- Proxy keeps Bunny endpoints hidden from client network tab
+
+RATE LIMITING:
+- throttle:upload middleware on prepare-upload endpoints
+- Prevents abuse of Bunny API key quota
+
+ERROR LOGGING:
+- Frontend errors posted to /upload/log-error with user_id,
+  IP, user-agent captured server-side
+- All Bunny failures logged with context (no secrets)
+
+================================================================
+4. PERFORMANCE OPTIMIZATIONS
+================================================================
+
+UPLOAD PERFORMANCE:
+- Direct browser->Bunny TUS upload (server bandwidth bypassed)
+- 2MB chunking enables parallel-friendly, resumable transfers
+- Retry ladder (0/3/5/10/20s) handles flaky mobile networks
+- Same-origin proxy eliminates CORS preflight round-trips to
+  third-party origin on mobile browsers
+- 409-conflict auto-heal inside proxy (single client request)
+
+PROCESSING PERFORMANCE:
+- Async queue jobs: ProcessVideo (videos), CompressReel (reels)
+- QUEUE_CONNECTION=database workers process off-request
+- HLS multi-bitrate ladder (360/720/1080) for adaptive streaming
+- 4-second HLS segments for fast seeking
+
+DELIVERY PERFORMANCE:
+- Bunny.net global CDN edge delivery
+- Animated WebP previews (preview.webp) instead of video loads
+- Auto thumbnails at 5s mark (no heavy first-frame grabs)
+- play_480p.mp4 substitution for duet previews (bandwidth save)
+
+DATABASE PERFORMANCE:
+- Global scopes filter early (has_slug, published, activeCreator)
+- views_count/likes_count denormalized counters (no COUNT(*))
+- SafeCache wrapper: ads cached 300s, banners 300s
+- Related videos capped at 10 with fallback fill query
+- app()->terminating() defers view-count writes until after
+  response is sent (user-perceived latency zero)
+
+FRONTEND PERFORMANCE:
+- Alpine.js lightweight reactivity (no SPA framework weight)
+- ObjectURL previews (zero upload for preview playback)
+- Debounced search inputs (500ms) for Giphy/music searches
+- Lazy pagination on related videos
+
+RELIABILITY:
+- Dual-path upload: TUS primary + direct server fallback
+- try/catch around every external call (Bunny, Pusher, FCM)
+- Broadcast failures logged but never block the upload flow
+- Job retries configured (ProcessVideo tries=2, timeout=600s)
+
+================================================================
+5. WATCHTIME LOGIC (MONETIZATION TRACKING)
+================================================================
+
+THREE TRACKING LAYERS:
+
+LAYER 1 - SESSION TELEMETRY (AnalyticsService::pingVideo)
+Table: video_watch_logs
+Keyed by: (session_token, video_id, reel_id, date)
+- Frontend pings every ~10 seconds with watch_increment
+- watch_duration_seconds accumulates deltas (anti-cheat:
+  only positive increments accepted, completion_percentage
+  uses max() so rewind cannot reduce it)
+- Works for guests AND logged-in users (user_id nullable,
+  backfilled when user logs in mid-session)
+Example log line produced:
+"Telemetry: Video/Reel Watched {duration_added:10,
+ total_watch_seconds:70, completion_percentage:63.61}"
+
+LAYER 2 - SESSION DURATION (pingSession)
+Table: user_sessions
+- start/ping/end actions tracked per session_token
+- duration_seconds = started_at.diffInSeconds(ended_at)
+- Feeds platform-wide engagement metrics
+
+LAYER 3 - USER PROGRESS + RETENTION MILESTONES
+(updateWatchProgress)
+Tables: watch_history + videos columns
+Per logged-in user per video:
+- progress_seconds, total_duration, is_completed,
+  device_type, last_watched_at persisted
+RETENTION COUNTERS on videos table:
+- retention_25, retention_50, retention_75, retention_100
+- Incremented exactly once per user when they FIRST cross
+  each milestone (oldPercent < m && newPercent >= m guard)
+- Guests tracked via session array to prevent double counting
+TOTAL WATCH TIME:
+- Video.total_watch_time incremented by validated delta
+  delta = max(0, requested_progress - stored_progress)
+  (prevents scrubbing inflation)
+
+VIEW COUNTING (VideoService::show):
+- Views increment inside app()->terminating() (post-response)
+- impressions kept >= views_count invariant maintained
+- Logged-in views also dispatch RecordVideoView job
+  (device detection: Mobile/Tablet/Desktop regex on UA)
+
+DAILY AD REVENUE ACCRUAL (recordAdImpression):
+Table: video_earnings (per video per date)
+- ad_impressions++ per impression event
+- estimated_revenue += gs('per_impression_earn') default 0.005
+This creates the daily revenue pool basis for creator payouts.
+
+================================================================
+6. CREATOR MONETIZATION LOGIC (COMPLETE)
+================================================================
+
+STREAM A - PPV (PAY-PER-VIEW VIDEO SALES)
+------------------------------------------
+PRICING SETUP (upload/edit):
+- pricing_tier enum: free=0, premium=1, exclusive=2
+- Only premium/exclusive tiers carry a price
+- Server enforces: is_premium=1 ONLY IF creator
+  hasPremiumAccess() (active subscription plan)
+- price stored as decimal on videos table
+
+ACCESS RESOLUTION (VideoService::show priority order):
+1. Owner always has access
+2. PurchasedVideo record exists -> access
+3. Tier 2 (exclusive): requires hasOttAccess()
+4. Any tier + viewer hasPremiumAccess() -> access
+5. Otherwise paywall shown with Razorpay checkout
+
+PURCHASE FLOW (Razorpay India):
+a) createVideoOrder():
+   Razorpay order created: amount = price*100 paise,
+   currency INR, receipt = getTrx(), payment_capture=1
+   Session stores {order_id, video_id, amount} keyed by trx
+b) purchase():
+   - verifyPaymentSignature (HMAC check against secret)
+   - Payment status must be 'captured'
+   - Session cleared
+   - PurchasedVideo row: buyer, video, owner, price, trx
+COMMISSION SPLIT (the core creator earning):
+   totalAmount      = video.price
+   creatorPercent   = gs('ppv_creator_commission_percent')
+                      [admin setting, default fallback 60]
+   creatorComm      = total * percent / 100
+   adminComm        = total - creatorComm
+   -> VideoCommission row records full split audit trail
+      {video_id, purchaser_id, creator_id, total_amount,
+       admin_commission, creator_commission, trx}
+   -> creator.balance += creatorComm (instant credit)
+   -> Transaction ledger row: type '+', remark
+      'video_ppv_commission', post_balance snapshot,
+      charge column holds admin's cut for reporting
+   - Firebase push to creator: "X just purchased your video"
+
+STREAM B - AD REVENUE SHARE
+-------------------------------------------
+- Ad impressions recorded per video daily (video_earnings)
+- estimated_revenue accrues at per_impression_earn rate
+- Banner ads (slot1-4) + interstitial Ads served on pages
+- Daily aggregation available via AggregateAnalyticsData
+  command for payout batch runs
+
+STREAM C - SUBSCRIPTION PLANS (PLATFORM LEVEL)
+-----------------------------------------------
+- Plans/OttPlan models drive hasPremiumAccess()/hasOttAccess()
+- Creators can SET prices only while subscribed (plan gating)
+- Plan purchases handled by PlanController (is_premium=1
+  catalog browsing for buyers)
+
+CREATOR EARNINGS VISIBILITY:
+- Transaction table = complete ledger (+/- with post_balance)
+- VideoCommission = per-sale split receipts
+- VideoEarning = daily ad revenue per video
+- Studio dashboard surfaces balances derived from these tables
+
+WITHDRAWALS:
+- WithdrawalsExport exists (admin export of payout requests)
+- balance field on users is source of truth
+
+ANTI-FRAUD NOTES IN CURRENT IMPLEMENTATION:
+- Signature verification mandatory before crediting
+- Commission credited only after captured payment verified
+- Watchtime increments sanitized (positive-only, monotonic
+  completion percentage)
+- Session-token scoping prevents cross-video watch inflation
+- Rate limiting on upload/payment initiation endpoints
+
+----------------------------------------------------------------
+KEY FILES REFERENCE MAP
+----------------------------------------------------------------
+Upload frontend .... resources/views/frontend/videos/create.blade.php
+Reel frontend ...... resources/views/frontend/reels/create.blade.php
+Upload controller .. app/Http/Controllers/Web/BunnyUploadController.php
+Upload service ..... app/Services/Frontend/UploadService.php
+Bunny service ...... app/Services/BunnyStreamService.php
+CORS proxy ......... app/Http/Controllers/TusProxyController.php
+Fallback upload .... app/Http/Controllers/Web/DirectUploadController.php
+Video processing ... app/Jobs/ProcessVideo.php (FFmpeg HLS)
+Reel processing .... app/Jobs/CompressReel.php
+Watchtime engine ... app/Services/Frontend/AnalyticsService.php
+Monetize service ... app/Services/Frontend/VideoService.php (purchase)
+Commission model ... app/Models/VideoCommission.php
+Earnings model ..... app/Models/VideoEarning.php
+Ledger ............. app/Models/Transaction.php
+Purchases .......... app/Models/PurchasedVideo.php
+Admin commission % . GeneralSetting.ppv_creator_commission_percent
+Per-impression rate  GeneralSetting.per_impression_earn
+
+================================================================
+END OF AUDIT REPORT
+================================================================

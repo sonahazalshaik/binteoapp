@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Space+Grotesk:wght@600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-bright": "#39393c",
+                    "inverse-surface": "#e4e1e6",
+                    "secondary-container": "#980000",
+                    "tertiary-fixed": "#ffdcbf",
+                    "tertiary-container": "#d47b00",
+                    "surface-variant": "#353438",
+                    "on-error": "#690005",
+                    "on-secondary-container": "#ff9f90",
+                    "on-surface-variant": "#e6beb2",
+                    "error": "#ffb4ab",
+                    "primary": "#ffb59e",
+                    "surface-dim": "#131316",
+                    "surface-tint": "#ffb59e",
+                    "error-container": "#93000a",
+                    "on-surface": "#e4e1e6",
+                    "surface-container-high": "#2a2a2d",
+                    "on-primary": "#5e1700",
+                    "surface-container-low": "#1b1b1e",
+                    "outline-variant": "#5c4037",
+                    "primary-container": "#ff571a",
+                    "on-background": "#e4e1e6",
+                    "tertiary-fixed-dim": "#ffb874",
+                    "on-error-container": "#ffdad6",
+                    "on-secondary-fixed": "#410000",
+                    "inverse-primary": "#ae3200",
+                    "on-secondary-fixed-variant": "#930000",
+                    "outline": "#ad897e",
+                    "on-primary-container": "#521300",
+                    "on-tertiary-fixed-variant": "#6a3b00",
+                    "tertiary": "#ffb874",
+                    "primary-fixed-dim": "#ffb59e",
+                    "on-primary-fixed-variant": "#852400",
+                    "surface": "#131316",
+                    "on-tertiary-fixed": "#2d1600",
+                    "primary-fixed": "#ffdbd0",
+                    "on-tertiary-container": "#412200",
+                    "secondary-fixed": "#ffdad4",
+                    "on-secondary": "#690000",
+                    "secondary-fixed-dim": "#ffb4a8",
+                    "secondary": "#ffb4a8",
+                    "inverse-on-surface": "#303033",
+                    "background": "#131316",
+                    "on-primary-fixed": "#3a0b00",
+                    "surface-container": "#1f1f22",
+                    "surface-container-highest": "#353438",
+                    "on-tertiary": "#4b2800",
+                    "surface-container-lowest": "#0e0e11"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "unit": "8px",
+                    "margin-desktop": "64px",
+                    "gutter": "24px",
+                    "margin-mobile": "16px",
+                    "container-max-width": "1440px"
+            },
+            "fontFamily": {
+                    "h2": ["Manrope"],
+                    "label-caps": ["Space Grotesk"],
+                    "body-lg": ["Manrope"],
+                    "h3": ["Manrope"],
+                    "h1": ["Manrope"],
+                    "body-md": ["Manrope"]
+            },
+            "fontSize": {
+                    "h2": ["3rem", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "label-caps": ["0.75rem", {"lineHeight": "1", "letterSpacing": "0.1em", "fontWeight": "600"}],
+                    "body-lg": ["1.125rem", {"lineHeight": "1.6", "letterSpacing": "0em", "fontWeight": "400"}],
+                    "h3": ["1.5rem", {"lineHeight": "1.3", "letterSpacing": "0em", "fontWeight": "600"}],
+                    "h1": ["4.5rem", {"lineHeight": "1.1", "letterSpacing": "-0.04em", "fontWeight": "800"}],
+                    "body-md": ["1rem", {"lineHeight": "1.5", "letterSpacing": "0em", "fontWeight": "400"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .glass-panel {
+            backdrop-filter: blur(24px);
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-top-color: rgba(255, 255, 255, 0.3);
+            border-left-color: rgba(255, 255, 255, 0.3);
+            box-shadow: 0 40px 80px -20px rgba(255, 87, 26, 0.15);
+        }
+        .glow-orange {
+            box-shadow: 0 0 20px 2px rgba(255, 87, 26, 0.6);
+        }
+        .mesh-gradient {
+            background-color: #0e0e11;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(255, 87, 26, 0.3) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(147, 0, 0, 0.2) 0px, transparent 50%),
+                radial-gradient(at 50% 100%, rgba(255, 87, 26, 0.15) 0px, transparent 50%);
+        }
+        .input-glass {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+        .input-glass:focus {
+            border-color: #ff571a;
+            box-shadow: 0 0 10px rgba(255, 87, 26, 0.3);
+            background: rgba(255, 255, 255, 0.06);
+            outline: none;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background font-body-md min-h-screen flex flex-col mesh-gradient overflow-x-hidden">
+<!-- TopAppBar Fragment - Suppressed Navigation Shell per Rules (Transactional Page) -->
+<header class="fixed top-0 w-full z-50 flex justify-between items-center px-8 py-6">
+<div class="flex items-center gap-2">
+<div class="w-10 h-10 rounded-full bg-gradient-to-br from-primary-container to-secondary-container flex items-center justify-center glow-orange">
+<span class="material-symbols-outlined text-white" style="font-variation-settings: 'FILL' 1;">wb_sunny</span>
+</div>
+<span class="font-h3 text-primary tracking-tighter uppercase">SOLARIS</span>
+</div>
+<div class="hidden md:flex items-center gap-6">
+<a class="font-label-caps text-on-surface-variant hover:text-primary transition-colors" href="#">Support</a>
+<a class="font-label-caps text-on-surface-variant hover:text-primary transition-colors" href="#">Privacy</a>
+</div>
+</header>
+<main class="flex-grow flex items-center justify-center px-margin-mobile md:px-0 py-24">
+<!-- Central Glassmorphism Card -->
+<div class="glass-panel w-full max-w-[480px] rounded-[2rem] p-10 md:p-14 relative z-10">
+<!-- Logo Emblem -->
+<div class="flex flex-col items-center mb-10">
+<div class="mb-4 text-primary relative">
+<span class="material-symbols-outlined text-6xl" style="font-variation-settings: 'FILL' 1;">flare</span>
+<div class="absolute inset-0 blur-xl bg-primary-container/40 rounded-full"></div>
+</div>
+<h1 class="font-h2 text-white mb-2">Welcome Back</h1>
+<p class="text-on-surface-variant font-body-md text-center">Enter the solar ecosystem to manage your energy assets.</p>
+</div>
+<!-- Login Form -->
+<form class="space-y-6">
+<div class="space-y-2">
+<label class="font-label-caps text-on-surface-variant ml-1">Identity Tag</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant text-xl">alternate_email</span>
+<input class="input-glass w-full rounded-xl py-4 pl-12 pr-4 text-white placeholder:text-white/20" placeholder="name@solar.is" type="email"/>
+</div>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between items-center px-1">
+<label class="font-label-caps text-on-surface-variant">Security Key</label>
+<a class="text-[10px] uppercase font-bold text-primary hover:underline" href="#">Forgot?</a>
+</div>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant text-xl">lock</span>
+<input class="input-glass w-full rounded-xl py-4 pl-12 pr-4 text-white placeholder:text-white/20" placeholder="••••••••" type="password"/>
+</div>
+</div>
+<!-- Primary Action -->
+<button class="w-full bg-gradient-to-r from-primary-container to-[#ae3200] text-white font-bold py-4 rounded-xl shadow-[0_10px_30px_rgba(255,87,26,0.3)] hover:shadow-[0_15px_40px_rgba(255,87,26,0.5)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 group" type="submit">
+<span class="font-h3 text-lg">Initialize Session</span>
+<span class="material-symbols-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>
+</button>
+</form>
+<!-- Social Logins -->
+<div class="mt-10">
+<div class="flex items-center gap-4 mb-8">
+<div class="h-px bg-white/10 flex-grow"></div>
+<span class="font-label-caps text-on-surface-variant text-[10px]">Matrix Authentication</span>
+<div class="h-px bg-white/10 flex-grow"></div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<button class="glass-panel border-white/5 hover:bg-white/10 transition-colors py-3 px-4 rounded-xl flex items-center justify-center gap-3">
+<img alt="" class="w-5 h-5" data-alt="Official Google G logo in bright colors with a clean minimalist design" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAGaVbp7Fp65exy8plIZHMKLKVerUHQ7DUexdwSLayqpD83Yco6BZ1c2mA6vAcfd4jz1dqMg48IxLmWSQAQn_Zxt53CnVCifyHkK-bAc_uhpDRsWuGlO30_N2mBijhSPRyiIfupSTJCN-D-pzLk4THmTTMoVNjK9FBoME2SBhmy6hTPH8QH1R6Wb7U24BgvN_wVAcvQw_dL_FemBNJDDLSaJVyyz59pK3nnRu2x3aYtb6hkowQYJFa6ayHArRfZmhovQIzx2B7Y8bTV"/>
+<span class="font-label-caps text-white text-[11px]">Google</span>
+</button>
+<button class="glass-panel border-white/5 hover:bg-white/10 transition-colors py-3 px-4 rounded-xl flex items-center justify-center gap-3">
+<span class="material-symbols-outlined text-white text-xl">fingerprint</span>
+<span class="font-label-caps text-white text-[11px]">Biometric</span>
+</button>
+</div>
+</div>
+<p class="mt-10 text-center text-on-surface-variant text-sm">
+                New to the system? <a class="text-primary font-bold hover:underline" href="#">Request Access</a>
+</p>
+</div>
+<!-- Decorative Mesh Background elements -->
+<div class="fixed top-[10%] right-[-5%] w-[500px] h-[500px] rounded-full bg-primary-container/20 blur-[120px] -z-10"></div>
+<div class="fixed bottom-[-10%] left-[-5%] w-[400px] h-[400px] rounded-full bg-secondary-container/10 blur-[100px] -z-10"></div>
+</main>
+<!-- Content-heavy background imagery (Abstract Kineticism) -->
+<div class="fixed inset-0 -z-20 overflow-hidden opacity-30 mix-blend-overlay pointer-events-none">
+<img alt="" class="w-full h-full object-cover" data-alt="abstract flowing liquid metal background with orange and black waves and vibrant cinematic lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAShGpXsK0ktb89Qm38WFYvpzijGsV-M215QqCvtsAoF18GeBxrBA2kRi__5jvuCivohtzuh69UPS_VvNlL-nR24aiWQFX8EqFbzyGHjKo1tC1BymocukyKorwZtnDDtVmuISE68fEQmNxjW-_XAuXD2GoH5-EzMF5unYRwq_Ch4F_u8_Iphz_J9Hq5SRgpb20zuMSv-yeUrmy8VxEDHUykjV9Zebm14OKhQADOZdv9_a6s6Bw4E-Tj2rPMUBNCfxL35__6Dul7IVGj"/>
+</div>
+<!-- Footer for legal links in transactional view -->
+<footer class="p-8 flex flex-col md:flex-row justify-between items-center gap-4 text-on-surface-variant/50">
+<p class="font-label-caps text-[10px] tracking-widest">© 2024 SOLARIS KINETIC INDUSTRIES. ALL RIGHTS RESERVED.</p>
+<div class="flex gap-6">
+<a class="font-label-caps text-[10px] hover:text-primary" href="#">EULA</a>
+<a class="font-label-caps text-[10px] hover:text-primary" href="#">Security Protocols</a>
+<a class="font-label-caps text-[10px] hover:text-primary" href="#">Status: Optimal</a>
+</div>
+</footer>
+</body></html>

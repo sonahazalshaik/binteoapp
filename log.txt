@@ -1,0 +1,92 @@
+[2026-08-27 18:43:10] local.INFO: Telemetry: Session Ping {"action":"end","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8075.0} 
+[2026-08-27 18:43:10] local.INFO: Telemetry: Session Ping {"action":"start","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8075} 
+[2026-08-27 18:43:11] local.INFO: [FCM] Token update request received {"user_id":210003,"token_prefix":"dFrcBaQEr4O9-QODHm3_...","device_type":"mobile","ip":"49.204.163.131"} 
+[2026-08-27 18:43:11] local.INFO: [FCM TOKEN SAVED] Token generated & synced successfully {"id":33412,"user_id":210003,"device_type":"mobile","fcm_token":"dFrcBaQEr4O9-QODHm3_wR:APA91bEXmlsd2vHIMTCOjy3ls8aDG_wEC8EI3ebqhD6kqMzPJVRgkCSdtBbZvRjLTXClsZY3WerNHB5mdXl2PJV-opAMQm9TkAWqR9e7NHDwW5cD9j9utpE","status":"TOKEN UPDATED"} 
+[2026-08-27 18:43:11] local.INFO: [FCM] Token update result: {"success":true}  
+[2026-08-27 18:43:11] local.INFO: [FCM] Token update request received {"user_id":210003,"token_prefix":"dFrcBaQEr4O9-QODHm3_...","device_type":"mobile","ip":"49.204.163.131"} 
+[2026-08-27 18:43:11] local.INFO: [FCM TOKEN SAVED] Token generated & synced successfully {"id":33412,"user_id":210003,"device_type":"mobile","fcm_token":"dFrcBaQEr4O9-QODHm3_wR:APA91bEXmlsd2vHIMTCOjy3ls8aDG_wEC8EI3ebqhD6kqMzPJVRgkCSdtBbZvRjLTXClsZY3WerNHB5mdXl2PJV-opAMQm9TkAWqR9e7NHDwW5cD9j9utpE","status":"TOKEN UPDATED"} 
+[2026-08-27 18:43:11] local.INFO: [FCM] Token update result: {"success":true}  
+[2026-08-27 18:43:14] local.INFO: Telemetry: Session Ping {"action":"end","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8079.0} 
+[2026-08-27 18:43:14] local.INFO: Telemetry: Session Ping {"action":"start","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8079} 
+[2026-08-27 18:43:15] local.INFO: [FCM] Token update request received {"user_id":210003,"token_prefix":"dFrcBaQEr4O9-QODHm3_...","device_type":"mobile","ip":"49.204.163.131"} 
+[2026-08-27 18:43:15] local.INFO: [FCM TOKEN SAVED] Token generated & synced successfully {"id":33412,"user_id":210003,"device_type":"mobile","fcm_token":"dFrcBaQEr4O9-QODHm3_wR:APA91bEXmlsd2vHIMTCOjy3ls8aDG_wEC8EI3ebqhD6kqMzPJVRgkCSdtBbZvRjLTXClsZY3WerNHB5mdXl2PJV-opAMQm9TkAWqR9e7NHDwW5cD9j9utpE","status":"TOKEN UPDATED"} 
+[2026-08-27 18:43:15] local.INFO: [FCM] Token update result: {"success":true}  
+[2026-08-27 18:43:15] local.INFO: [FCM] Token update request received {"user_id":210003,"token_prefix":"dFrcBaQEr4O9-QODHm3_...","device_type":"mobile","ip":"49.204.163.131"} 
+[2026-08-27 18:43:15] local.INFO: [FCM TOKEN SAVED] Token generated & synced successfully {"id":33412,"user_id":210003,"device_type":"mobile","fcm_token":"dFrcBaQEr4O9-QODHm3_wR:APA91bEXmlsd2vHIMTCOjy3ls8aDG_wEC8EI3ebqhD6kqMzPJVRgkCSdtBbZvRjLTXClsZY3WerNHB5mdXl2PJV-opAMQm9TkAWqR9e7NHDwW5cD9j9utpE","status":"TOKEN UPDATED"} 
+[2026-08-27 18:43:15] local.INFO: [FCM] Token update result: {"success":true}  
+[2026-08-27 18:43:16] local.INFO: Telemetry: Session Ping {"action":"ping","session_token":"0c606098-aef1-4e97-a8fe-de9b6042ed37","user_id":210003,"duration_seconds":9917.0} 
+[2026-08-27 18:43:20] local.INFO: Telemetry: Session Ping {"action":"end","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8085.0} 
+[2026-08-27 18:43:21] local.INFO: Telemetry: Session Ping {"action":"start","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8085} 
+[2026-08-27 18:43:21] local.INFO: [FCM] Token update request received {"user_id":210003,"token_prefix":"dFrcBaQEr4O9-QODHm3_...","device_type":"mobile","ip":"49.204.163.131"} 
+[2026-08-27 18:43:21] local.INFO: [FCM TOKEN SAVED] Token generated & synced successfully {"id":33412,"user_id":210003,"device_type":"mobile","fcm_token":"dFrcBaQEr4O9-QODHm3_wR:APA91bEXmlsd2vHIMTCOjy3ls8aDG_wEC8EI3ebqhD6kqMzPJVRgkCSdtBbZvRjLTXClsZY3WerNHB5mdXl2PJV-opAMQm9TkAWqR9e7NHDwW5cD9j9utpE","status":"TOKEN UPDATED"} 
+[2026-08-27 18:43:21] local.INFO: [FCM] Token update result: {"success":true}  
+[2026-08-27 18:43:22] local.INFO: [FCM] Token update request received {"user_id":210003,"token_prefix":"dFrcBaQEr4O9-QODHm3_...","device_type":"mobile","ip":"49.204.163.131"} 
+[2026-08-27 18:43:22] local.INFO: [FCM TOKEN SAVED] Token generated & synced successfully {"id":33412,"user_id":210003,"device_type":"mobile","fcm_token":"dFrcBaQEr4O9-QODHm3_wR:APA91bEXmlsd2vHIMTCOjy3ls8aDG_wEC8EI3ebqhD6kqMzPJVRgkCSdtBbZvRjLTXClsZY3WerNHB5mdXl2PJV-opAMQm9TkAWqR9e7NHDwW5cD9j9utpE","status":"TOKEN UPDATED"} 
+[2026-08-27 18:43:22] local.INFO: [FCM] Token update result: {"success":true}  
+[2026-08-27 18:43:44] local.INFO: UploadService: Preparing Reel Upload {"user_id":210003,"title":"This is the mobile duet test"} 
+[2026-08-27 18:43:45] local.INFO: [NOTIFY-PIPELINE][STAGE-1] Dispatching NotifySubscribers job. {"trigger":"reel","reel_id":58,"reel_title":"This is the mobile duet test","channel":"sona real","user_id":210003} 
+[2026-08-27 18:43:45] local.INFO: [NOTIFY-PIPELINE][STAGE-1] NotifySubscribers job dispatched to queue successfully.  
+[2026-08-27 18:43:45] local.INFO: [REEL-UPLOAD] session created (non-TUS) {"reel_id":58,"bunny_id":"fb326998-f450-4670-a9de-d395087b68a5","transport":"direct"} 
+[2026-08-27 18:43:45] local.INFO: [NOTIFY-PIPELINE][STAGE-2] NotifySubscribers job STARTED. {"user_id":210003,"channel":"sona real","type":"reel","title":"sona real uploaded a new reel: This is the mobile duet test"} 
+[2026-08-27 18:43:45] local.INFO: [NOTIFY-PIPELINE][STAGE-2] No subscribers found for channel, aborting. {"channel_id":18} 
+[2026-08-27 18:43:46] local.INFO: Telemetry: Session Ping {"action":"ping","session_token":"0c606098-aef1-4e97-a8fe-de9b6042ed37","user_id":210003,"duration_seconds":9947.0} 
+[2026-08-27 18:43:46] local.INFO: DirectUpload: Starting reel upload to Bunny {"reel_id":58,"bunny_id":"fb326998-f450-4670-a9de-d395087b68a5","file_size":707956,"user_agent":"Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36"} 
+[2026-08-27 18:43:46] local.INFO: [REEL-UPLOAD] completed, uploading local source to Bunny (streamed) {"reel_id":58,"bunny_id":"fb326998-f450-4670-a9de-d395087b68a5","bytes":707956} 
+[2026-08-27 18:43:46] local.INFO: [REEL-BUNNY] upload started {"reel_id":58,"bunny_id":"fb326998-f450-4670-a9de-d395087b68a5"} 
+[2026-08-27 18:43:48] local.INFO: [AUTO-QUEUE] Processed jobs on page visit {"pending_before":1,"remaining":0} 
+[2026-08-27 18:43:48] local.INFO: [REEL-BUNNY] upload finished {"reel_id":58,"bunny_id":"fb326998-f450-4670-a9de-d395087b68a5","status":200} 
+[2026-08-27 18:43:49] local.INFO: [REEL-BUNNY] upload completed; awaiting READY webhook to dispatch processing {"reel_id":58,"bunny_id":"fb326998-f450-4670-a9de-d395087b68a5"} 
+[2026-08-27 18:43:49] local.INFO: Bunny Webhook received {"IsLiveStreamWebhook":false,"VideoLibraryId":657635,"VideoGuid":"fb326998-f450-4670-a9de-d395087b68a5","Status":0} 
+[2026-08-27 18:43:49] local.INFO: Bunny Webhook: Asset still queued/processing {"id":58,"is_reel":true,"bunny_id":"fb326998-f450-4670-a9de-d395087b68a5","status":0} 
+[2026-08-27 18:43:50] local.INFO: Telemetry: Session Ping {"action":"end","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8115.0} 
+[2026-08-27 18:43:50] local.INFO: Telemetry: Session Ping {"action":"start","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8115} 
+[2026-08-27 18:43:51] local.INFO: [FCM] Token update request received {"user_id":210003,"token_prefix":"dFrcBaQEr4O9-QODHm3_...","device_type":"mobile","ip":"49.204.163.131"} 
+[2026-08-27 18:43:51] local.INFO: [FCM TOKEN SAVED] Token generated & synced successfully {"id":33412,"user_id":210003,"device_type":"mobile","fcm_token":"dFrcBaQEr4O9-QODHm3_wR:APA91bEXmlsd2vHIMTCOjy3ls8aDG_wEC8EI3ebqhD6kqMzPJVRgkCSdtBbZvRjLTXClsZY3WerNHB5mdXl2PJV-opAMQm9TkAWqR9e7NHDwW5cD9j9utpE","status":"TOKEN UPDATED"} 
+[2026-08-27 18:43:51] local.INFO: [FCM] Token update result: {"success":true}  
+[2026-08-27 18:43:51] local.INFO: [FCM] Token update request received {"user_id":210003,"token_prefix":"dFrcBaQEr4O9-QODHm3_...","device_type":"mobile","ip":"49.204.163.131"} 
+[2026-08-27 18:43:51] local.INFO: [FCM TOKEN SAVED] Token generated & synced successfully {"id":33412,"user_id":210003,"device_type":"mobile","fcm_token":"dFrcBaQEr4O9-QODHm3_wR:APA91bEXmlsd2vHIMTCOjy3ls8aDG_wEC8EI3ebqhD6kqMzPJVRgkCSdtBbZvRjLTXClsZY3WerNHB5mdXl2PJV-opAMQm9TkAWqR9e7NHDwW5cD9j9utpE","status":"TOKEN UPDATED"} 
+[2026-08-27 18:43:51] local.INFO: [FCM] Token update result: {"success":true}  
+[2026-08-27 18:44:06] local.INFO: Telemetry: Session Ping {"action":"end","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8131.0} 
+[2026-08-27 18:44:06] local.INFO: Telemetry: Session Ping {"action":"start","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8131} 
+[2026-08-27 18:44:07] local.INFO: [FCM] Token update request received {"user_id":210003,"token_prefix":"dFrcBaQEr4O9-QODHm3_...","device_type":"mobile","ip":"49.204.163.131"} 
+[2026-08-27 18:44:07] local.INFO: [FCM TOKEN SAVED] Token generated & synced successfully {"id":33412,"user_id":210003,"device_type":"mobile","fcm_token":"dFrcBaQEr4O9-QODHm3_wR:APA91bEXmlsd2vHIMTCOjy3ls8aDG_wEC8EI3ebqhD6kqMzPJVRgkCSdtBbZvRjLTXClsZY3WerNHB5mdXl2PJV-opAMQm9TkAWqR9e7NHDwW5cD9j9utpE","status":"TOKEN UPDATED"} 
+[2026-08-27 18:44:07] local.INFO: [FCM] Token update result: {"success":true}  
+[2026-08-27 18:44:07] local.INFO: [FCM] Token update request received {"user_id":210003,"token_prefix":"dFrcBaQEr4O9-QODHm3_...","device_type":"mobile","ip":"49.204.163.131"} 
+[2026-08-27 18:44:07] local.INFO: [FCM TOKEN SAVED] Token generated & synced successfully {"id":33412,"user_id":210003,"device_type":"mobile","fcm_token":"dFrcBaQEr4O9-QODHm3_wR:APA91bEXmlsd2vHIMTCOjy3ls8aDG_wEC8EI3ebqhD6kqMzPJVRgkCSdtBbZvRjLTXClsZY3WerNHB5mdXl2PJV-opAMQm9TkAWqR9e7NHDwW5cD9j9utpE","status":"TOKEN UPDATED"} 
+[2026-08-27 18:44:07] local.INFO: [FCM] Token update result: {"success":true}  
+[2026-08-27 18:44:16] local.INFO: Telemetry: Session Ping {"action":"ping","session_token":"0c606098-aef1-4e97-a8fe-de9b6042ed37","user_id":210003,"duration_seconds":9977.0} 
+[2026-08-27 18:44:34] local.INFO: Telemetry: Session Ping {"action":"end","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8159.0} 
+[2026-08-27 18:44:34] local.INFO: Telemetry: Session Ping {"action":"start","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8159} 
+[2026-08-27 18:44:34] local.INFO: [FCM] Token update request received {"user_id":210003,"token_prefix":"dFrcBaQEr4O9-QODHm3_...","device_type":"mobile","ip":"49.204.163.131"} 
+[2026-08-27 18:44:34] local.INFO: [FCM] Token update request received {"user_id":210003,"token_prefix":"dFrcBaQEr4O9-QODHm3_...","device_type":"mobile","ip":"49.204.163.131"} 
+[2026-08-27 18:44:34] local.INFO: [FCM TOKEN SAVED] Token generated & synced successfully {"id":33412,"user_id":210003,"device_type":"mobile","fcm_token":"dFrcBaQEr4O9-QODHm3_wR:APA91bEXmlsd2vHIMTCOjy3ls8aDG_wEC8EI3ebqhD6kqMzPJVRgkCSdtBbZvRjLTXClsZY3WerNHB5mdXl2PJV-opAMQm9TkAWqR9e7NHDwW5cD9j9utpE","status":"TOKEN UPDATED"} 
+[2026-08-27 18:44:34] local.INFO: [FCM] Token update result: {"success":true}  
+[2026-08-27 18:44:34] local.INFO: [FCM TOKEN SAVED] Token generated & synced successfully {"id":33412,"user_id":210003,"device_type":"mobile","fcm_token":"dFrcBaQEr4O9-QODHm3_wR:APA91bEXmlsd2vHIMTCOjy3ls8aDG_wEC8EI3ebqhD6kqMzPJVRgkCSdtBbZvRjLTXClsZY3WerNHB5mdXl2PJV-opAMQm9TkAWqR9e7NHDwW5cD9j9utpE","status":"TOKEN UPDATED"} 
+[2026-08-27 18:44:34] local.INFO: [FCM] Token update result: {"success":true}  
+[2026-08-27 18:44:46] local.INFO: Telemetry: Session Ping {"action":"ping","session_token":"0c606098-aef1-4e97-a8fe-de9b6042ed37","user_id":210003,"duration_seconds":10007.0} 
+[2026-08-27 18:45:04] local.INFO: Telemetry: Session Ping {"action":"ping","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8189.0} 
+[2026-08-27 18:45:16] local.INFO: Telemetry: Session Ping {"action":"ping","session_token":"0c606098-aef1-4e97-a8fe-de9b6042ed37","user_id":210003,"duration_seconds":10037.0} 
+[2026-08-27 18:45:34] local.INFO: Telemetry: Session Ping {"action":"ping","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8219.0} 
+[2026-08-27 18:45:46] local.INFO: Telemetry: Session Ping {"action":"ping","session_token":"0c606098-aef1-4e97-a8fe-de9b6042ed37","user_id":210003,"duration_seconds":10067.0} 
+[2026-08-27 18:46:04] local.INFO: Telemetry: Session Ping {"action":"ping","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8249.0} 
+[2026-08-27 18:46:16] local.INFO: Telemetry: Session Ping {"action":"ping","session_token":"0c606098-aef1-4e97-a8fe-de9b6042ed37","user_id":210003,"duration_seconds":10097.0} 
+[2026-08-27 18:46:34] local.INFO: Telemetry: Session Ping {"action":"ping","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8279.0} 
+[2026-08-27 18:46:50] local.INFO: Telemetry: Session Ping {"action":"end","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8295.0} 
+[2026-08-27 18:46:50] local.INFO: Telemetry: Session Ping {"action":"start","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8295} 
+[2026-08-27 18:46:50] local.INFO: [FCM] Token update request received {"user_id":210003,"token_prefix":"dFrcBaQEr4O9-QODHm3_...","device_type":"mobile","ip":"49.204.163.131"} 
+[2026-08-27 18:46:50] local.INFO: [FCM TOKEN SAVED] Token generated & synced successfully {"id":33412,"user_id":210003,"device_type":"mobile","fcm_token":"dFrcBaQEr4O9-QODHm3_wR:APA91bEXmlsd2vHIMTCOjy3ls8aDG_wEC8EI3ebqhD6kqMzPJVRgkCSdtBbZvRjLTXClsZY3WerNHB5mdXl2PJV-opAMQm9TkAWqR9e7NHDwW5cD9j9utpE","status":"TOKEN UPDATED"} 
+[2026-08-27 18:46:50] local.INFO: [FCM] Token update result: {"success":true}  
+[2026-08-27 18:46:50] local.INFO: [FCM] Token update request received {"user_id":210003,"token_prefix":"dFrcBaQEr4O9-QODHm3_...","device_type":"mobile","ip":"49.204.163.131"} 
+[2026-08-27 18:46:50] local.INFO: [FCM TOKEN SAVED] Token generated & synced successfully {"id":33412,"user_id":210003,"device_type":"mobile","fcm_token":"dFrcBaQEr4O9-QODHm3_wR:APA91bEXmlsd2vHIMTCOjy3ls8aDG_wEC8EI3ebqhD6kqMzPJVRgkCSdtBbZvRjLTXClsZY3WerNHB5mdXl2PJV-opAMQm9TkAWqR9e7NHDwW5cD9j9utpE","status":"TOKEN UPDATED"} 
+[2026-08-27 18:46:50] local.INFO: [FCM] Token update result: {"success":true}  
+[2026-08-27 18:47:17] local.INFO: Telemetry: Session Ping {"action":"ping","session_token":"0c606098-aef1-4e97-a8fe-de9b6042ed37","user_id":210003,"duration_seconds":10158.0} 
+[2026-08-27 18:47:20] local.INFO: Telemetry: Session Ping {"action":"ping","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8325.0} 
+[2026-08-27 18:47:30] local.INFO: Telemetry: Session Ping {"action":"end","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8335.0} 
+[2026-08-27 18:47:30] local.INFO: Telemetry: Session Ping {"action":"start","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8335} 
+[2026-08-27 18:47:30] local.INFO: [FCM] Token update request received {"user_id":210003,"token_prefix":"dFrcBaQEr4O9-QODHm3_...","device_type":"mobile","ip":"49.204.163.131"} 
+[2026-08-27 18:47:30] local.INFO: [FCM TOKEN SAVED] Token generated & synced successfully {"id":33412,"user_id":210003,"device_type":"mobile","fcm_token":"dFrcBaQEr4O9-QODHm3_wR:APA91bEXmlsd2vHIMTCOjy3ls8aDG_wEC8EI3ebqhD6kqMzPJVRgkCSdtBbZvRjLTXClsZY3WerNHB5mdXl2PJV-opAMQm9TkAWqR9e7NHDwW5cD9j9utpE","status":"TOKEN UPDATED"} 
+[2026-08-27 18:47:30] local.INFO: [FCM] Token update result: {"success":true}  
+[2026-08-27 18:47:30] local.INFO: [FCM] Token update request received {"user_id":210003,"token_prefix":"dFrcBaQEr4O9-QODHm3_...","device_type":"mobile","ip":"49.204.163.131"} 
+[2026-08-27 18:47:30] local.INFO: [FCM TOKEN SAVED] Token generated & synced successfully {"id":33412,"user_id":210003,"device_type":"mobile","fcm_token":"dFrcBaQEr4O9-QODHm3_wR:APA91bEXmlsd2vHIMTCOjy3ls8aDG_wEC8EI3ebqhD6kqMzPJVRgkCSdtBbZvRjLTXClsZY3WerNHB5mdXl2PJV-opAMQm9TkAWqR9e7NHDwW5cD9j9utpE","status":"TOKEN UPDATED"} 
+[2026-08-27 18:47:30] local.INFO: [FCM] Token update result: {"success":true}  
+[2026-08-27 18:48:00] local.INFO: Telemetry: Session Ping {"action":"ping","session_token":"7146631a-5f6a-410b-91b1-1404c9a6f997","user_id":210003,"duration_seconds":8365.0} 

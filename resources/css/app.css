@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    body {
+        @apply transition-colors duration-500;
+    }
+
+    /* Premium Custom Scrollbar */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+        @apply bg-transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        @apply bg-gray-200 dark:bg-white/10 rounded-full border-2 border-transparent bg-clip-padding hover:bg-gray-400 dark:hover:bg-white/30 transition-colors;
+    }
+
+    /* Hide scrollbar for specific elements */
+    .no-scrollbar::-webkit-scrollbar {
+        display: none;
+    }
+    .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+
+    /* Elegant sidebar scrollbar (shared by desktop + mobile sidebars) */
+    .custom-scrollbar {
+        scrollbar-width: thin;
+        scrollbar-color: #f97316 transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+        width: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+        @apply bg-orange-500 rounded-full transition-colors hover:bg-orange-600;
+    }
+
+    /* Orange gradient scrollbar */
+    .scrollbar-orange::-webkit-scrollbar {
+        width: 5px;
+    }
+    .scrollbar-orange::-webkit-scrollbar-track {
+        background: rgba(249, 115, 22, 0.05);
+        border-radius: 999px;
+    }
+    .scrollbar-orange::-webkit-scrollbar-thumb {
+        background: linear-gradient(180deg, #f97316, #f59e0b);
+        border-radius: 999px;
+    }
+    .scrollbar-orange::-webkit-scrollbar-thumb:hover {
+        background: linear-gradient(180deg, #ea580c, #d97706);
+    }
+    .scrollbar-orange {
+        scrollbar-width: thin;
+        scrollbar-color: #f97316 rgba(249, 115, 22, 0.05);
+    }
+}
+
+@layer components {
+    .premium-card {
+        @apply transition-all duration-500 ease-out;
+    }
+
+    .material-symbols-filled {
+        font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24 !important;
+    }
+
+    .fill-1 {
+        font-variation-settings: 'FILL' 1 !important;
+    }
+}

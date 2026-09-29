@@ -1,0 +1,92 @@
+================================================================================
+                    QUEUE & PUSH NOTIFICATIONS OPTIMIZATION REPORT
+================================================================================
+Created Date: August 25, 2026
+Status: Implemented & Active
+
+This report documents the architectural fixes applied to resolve the queue-clogging
+issues and ensure instant, reliable delivery of Firebase push notifications.
+
+--------------------------------------------------------------------------------
+1. THE PROBLEM ANALYSIS
+--------------------------------------------------------------------------------
+* Every web and API request ran middleware (LogSystemPerformance) which dispatched
+  a "WriteSystemLog" job into the database queue.
+* Because the site has high traffic (and background AJAX/telemetry requests), jobs 
+  piled up in the queue table faster than the auto-queue middleware processed them.
+* The queue table became clogged (backlog of 500+ jobs).
+* Since Firebase push notifications were placed at the end of the queue, they were 
+  stuck waiting indefinitely.
+
+--------------------------------------------------------------------------------
+2. ARCHITECTURAL FLOW CHART DIAGRAM
+--------------------------------------------------------------------------------
+
+[User Action: Video Upload / Post Comment]
+                  │
+                  ▼
+         [Laravel HTTP Request]
+                  │
+        ┌─────────┴─────────┐
+        ▼                   ▼
+[Synchronous Log]     [Notify Subscribers]
+(WriteSystemLog)      (NotifySubscribers Job)
+        │                   │
+        ▼                   ▼
+ [Direct DB Write]    [Dispatched to HIGH queue]
+   (Takes <2ms)             │
+        │                   ▼
+        ▼         [SendFirebaseNotificationJob]
+  [No Queue Load]   (Dispatched to HIGH queue)
+                            │
+                            ▼
+                  [Auto-Queue Middleware]
+                 (Artisan queue:work --queue=high,default)
+                            │
+                            ├────────────────────────┐
+                            ▼                        ▼
+                      [HIGH Queue]            [DEFAULT Queue]
+                    - NotifySubscribers      - Reels Compression
+                    - Firebase Push Alerts   - Video Encoding
+                            │                        │
+                            ▼                        ▼
+                        Processed                Processed
+                       Immediately!                Later
+                            │
+                            ▼
+                     [Firebase API]
+                            │
+                            ▼
+                   [User's Mobile Device]
+
+
+--------------------------------------------------------------------------------
+3. CHANGES MADE
+--------------------------------------------------------------------------------
+
+1. App/Jobs/WriteSystemLog.php
+   - Removed "ShouldQueue" implementation.
+   - Logging now occurs synchronously during the request, taking <2ms, and 
+     completely eliminating queue clutter.
+
+2. App/Jobs/NotifySubscribers.php
+   - Added `public $queue = 'high';` property.
+   - Subscriber resolution jobs are prioritized first.
+
+3. App/Jobs/SendFirebaseNotificationJob.php
+   - Added `public $queue = 'high';` property.
+   - Push notifications bypass normal queues.
+
+4. App/Http/Middleware/ProcessQueuedJobs.php
+   - Updated the artisan worker command line to prioritize queues:
+     `Artisan::call('queue:work', ['--queue' => 'high,default', ...]);`
+   - High-priority notification jobs will always run first.
+
+--------------------------------------------------------------------------------
+4. CRON CONFIGURATION (RECOMMENDED FOR LIVE SERVER)
+--------------------------------------------------------------------------------
+To process jobs continuously in the background without depending on page visits, 
+ensure this single Cron Job is added in cPanel once:
+
+* * * * * cd /path-to-your-project && php artisan queue:work --queue=high,default --stop-when-empty > /dev/null 2>&1
+================================================================================

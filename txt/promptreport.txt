@@ -1,0 +1,821 @@
+# BINTEO — VIDEO & REEL UPLOAD SYSTEM
+# CLIENT-FACING TECHNICAL IMPLEMENTATION REPORT
+
+I need you to generate a professional, client-facing technical report for the current BINTEO project.
+
+IMPORTANT:
+
+THIS IS REPORT GENERATION ONLY.
+
+DO NOT MODIFY ANY CODE.
+DO NOT FIX ANYTHING.
+DO NOT REFACTOR ANYTHING.
+DO NOT CHANGE CONFIGURATION.
+DO NOT ROLLBACK ANYTHING.
+
+You must inspect the ACTUAL current project code and generate the report based on what is actually implemented.
+
+Do not guess.
+Do not invent files, functions, controllers, middleware, routes, or logic.
+
+If something cannot be confirmed from the codebase, clearly mark it as:
+"Not confirmed from the current codebase."
+
+==================================================
+1. REPORT OBJECTIVE
+==================================================
+
+The client wants to understand:
+
+1. How video uploads are implemented.
+2. How reel uploads are implemented.
+3. What logic was implemented.
+4. Which controllers are involved.
+5. Which middleware is involved.
+6. Which view/Blade files are involved.
+7. How TUS works in the project.
+8. How chunking works.
+9. How Bunny CDN is integrated.
+10. How video processing works.
+11. How queues are used.
+12. What reliability/fallback mechanisms exist.
+13. What changes/fixes have already been implemented.
+14. What the current mobile upload issue is.
+15. Whether chunking is actually confirmed as the root cause.
+16. Whether QUEUE_CONNECTION=database is related to the upload issue.
+17. Difference between desktop and mobile upload behavior.
+18. Current architecture and limitations.
+
+The report must be understandable to a technical client/stakeholder but still contain enough technical detail for developers.
+
+==================================================
+2. INSPECT THE COMPLETE PROJECT
+==================================================
+
+First inspect the actual project structure.
+
+Identify all relevant files related to:
+
+- video upload
+'- reel upload
+- Bunny CDN
+- TUS
+- TUS proxy
+- upload preparation
+- direct upload
+- processing
+- compression
+- FFmpeg
+- queue jobs
+- upload status
+- polling
+- frontend upload JavaScript
+- middleware
+- routes
+- models
+- migrations
+- services
+- configuration
+
+Search the entire project rather than assuming file names.
+
+Use actual filenames and actual class/function names in the report.
+
+==================================================
+3. VIDEO UPLOAD IMPLEMENTATION
+==================================================
+
+Trace the complete video upload lifecycle.
+
+Document:
+
+USER
+↓
+VIDEO VIEW
+↓
+FRONTEND JAVASCRIPT
+↓
+UPLOAD PREPARATION
+↓
+BUNNY VIDEO CREATION
+↓
+TUS SESSION
+↓
+TUS CHUNKS
+↓
+TUS PROXY
+↓
+BUNNY CDN
+↓
+PROCESSING
+↓
+STATUS/POLLING
+↓
+VIDEO READY
+
+For every stage identify:
+
+- actual file
+- actual controller
+- actual method/function
+- actual route
+- important database operation
+- important API call
+- purpose
+
+==================================================
+4. REEL UPLOAD IMPLEMENTATION
+==================================================
+
+Trace the complete reel upload lifecycle.
+
+Document:
+
+- reel creation view
+- file selection
+- camera recording if implemented
+- frontend upload logic
+- TUS configuration
+- Bunny upload
+- processing
+- compression
+- FFmpeg if applicable
+- status handling
+- database updates
+- fallback behavior
+
+Again, use the actual project files and functions.
+
+==================================================
+5. CONTROLLERS
+==================================================
+
+Create a dedicated section listing all relevant controllers.
+
+For each controller explain:
+
+Controller:
+File:
+Purpose:
+
+Then list its important methods.
+
+Example format:
+
+BunnyUploadController
+File:
+app/...
+
+Responsibilities:
+- ...
+- ...
+- ...
+
+Do NOT use example filenames if they do not exist.
+
+Only include controllers actually found in the project.
+
+==================================================
+6. MIDDLEWARE
+==================================================
+
+Identify all middleware involved in:
+
+- authentication
+- authorization
+- upload routes
+- CSRF
+- TUS proxy
+- user ownership/security
+- API access
+
+Explain exactly where each middleware is applied.
+
+Pay special attention to the TUS proxy CSRF configuration.
+
+Document:
+
+- route
+- middleware
+- reason
+- security consideration
+
+Do not claim a middleware is involved unless confirmed by the code.
+
+==================================================
+7. VIEW / BLADE FILES
+==================================================
+
+Create a dedicated section for all relevant frontend views.
+
+At minimum investigate the actual video and reel upload views.
+
+For each view document:
+
+File:
+Purpose:
+Upload-related logic:
+JavaScript/Alpine/TUS logic:
+Validation:
+Progress handling:
+Error handling:
+Reset/cancel behavior:
+
+Explain how the view communicates with the backend.
+
+==================================================
+8. ROUTES
+==================================================
+
+Identify all upload-related routes.
+
+Create a table:
+
+| Route | Method | Controller/Handler | Purpose |
+|---|---|---|---|
+
+Include:
+
+- prepare upload
+- TUS proxy
+- status
+- direct upload
+- video upload
+- reel upload
+- processing/status endpoints
+
+Only use routes actually found in the project.
+
+==================================================
+9. BUNNY CDN INTEGRATION
+==================================================
+
+Explain exactly how Bunny CDN is used.
+
+Document:
+
+- Bunny video creation
+- Bunny Video GUID
+- TUS upload URL
+- authentication/signature
+- expiration
+- upload offset
+- processing status
+- playback/streaming if relevant
+
+Explain the difference between:
+
+Bunny Video GUID
+
+and
+
+TUS Upload ID
+
+if both are present.
+
+Make clear that they are separate identifiers where applicable.
+
+==================================================
+10. TUS IMPLEMENTATION
+==================================================
+
+Explain the TUS implementation in detail.
+
+Document:
+
+- TUS client library
+- TUS endpoint
+- TUS proxy
+- chunk size
+- resumability
+- retry behavior
+- fingerprint behavior
+- Upload-Offset
+- PATCH requests
+- HEAD requests
+- 409 handling
+- upload completion
+
+Current chunk configuration must be taken from the actual code.
+
+Do NOT assume it is 2 MB unless the code confirms it.
+
+==================================================
+11. CHUNKING
+==================================================
+
+The client is concerned that chunking may be causing the upload problem.
+
+Do NOT automatically agree or disagree.
+
+Analyze the actual implementation and available evidence.
+
+Explain:
+
+- why chunking is used
+- current chunk size
+- how chunks are sent
+- how the proxy forwards chunks
+- how offsets are handled
+- what happens on 409
+- retry behavior
+- advantages
+- limitations
+
+Then provide:
+
+"Is chunking confirmed to be the root cause?"
+
+Answer:
+
+YES / NO / NOT CONFIRMED
+
+Explain using only evidence from the code and provided logs.
+
+IMPORTANT:
+
+Desktop uploads are currently working correctly.
+
+The report must clearly distinguish:
+
+"chunking is part of the upload architecture"
+
+from:
+
+"chunking is confirmed to be the cause of the mobile problem."
+
+Do not make an unsupported claim.
+
+==================================================
+12. QUEUE CONFIGURATION
+==================================================
+
+Inspect the actual environment/configuration used by the project.
+
+Determine:
+
+QUEUE_CONNECTION
+
+If the project currently uses:
+
+QUEUE_CONNECTION=database
+
+document that fact.
+
+Then trace which upload-related jobs actually use Laravel queues.
+
+Explain the difference between:
+
+VIDEO BYTE TRANSFER
+
+and
+
+BACKGROUND PROCESSING.
+
+For example:
+
+Browser → TUS → Bunny
+
+versus:
+
+Laravel → Queue → Processing Job
+
+Determine whether QUEUE_CONNECTION=database is actually involved in the TUS upload transfer.
+
+The client believes:
+
+"QUEUE_CONNECTION=database may be causing the upload issue."
+
+Do NOT simply agree.
+
+Provide:
+
+"Is QUEUE_CONNECTION=database confirmed to be the cause?"
+
+Answer:
+
+YES / NO / NOT CONFIRMED
+
+Support the answer using actual code.
+
+==================================================
+13. PROCESSING
+==================================================
+
+Document what happens after Bunny receives the upload.
+
+Explain:
+
+- Bunny processing
+- local status
+- processing status
+- polling
+- processing jobs
+- FFmpeg/compression if applicable
+- final ready state
+
+Clearly distinguish:
+
+UPLOAD
+
+from:
+
+PROCESSING
+
+This distinction is important because the client is uploading a video and then attempting another upload while the first video is still processing.
+
+==================================================
+14. SAME VIDEO UPLOAD BEHAVIOR
+==================================================
+
+Investigate what happens when:
+
+Video A
+→ uploaded successfully
+→ Bunny starts processing
+
+Then:
+
+Video A
+→ uploaded again
+
+Determine whether the second upload receives:
+
+- new local record
+- new Bunny GUID
+- new TUS upload ID
+- new upload URL
+- independent state
+
+Use actual code/log evidence.
+
+Do not assume that the same filename means the same upload.
+
+==================================================
+15. MOBILE VS DESKTOP
+==================================================
+
+This is a critical section.
+
+The client reports:
+
+"Desktop video uploads are working properly. The issue is mainly with mobile uploads."
+
+Analyze the code and available logs specifically from this perspective.
+
+Create:
+
+### Desktop
+
+Describe the successful flow.
+
+### Mobile
+
+Describe the failing flow.
+
+Identify where the flows differ, if the code/logs reveal a difference.
+
+Investigate possible factors such as:
+
+- browser behavior
+- Android Chrome
+- network changes
+- mobile connection stability
+- TUS PATCH
+- proxy
+- timeout
+- request body streaming
+- CORS
+- CSRF
+- retry behavior
+- Upload-Offset
+- browser ProgressEvent
+
+Do NOT claim a specific root cause unless supported by evidence.
+
+==================================================
+16. PROVIDED PRODUCTION LOG EVIDENCE
+==================================================
+
+Use the available production logs if they are present in the project/context.
+
+There is an important observed scenario:
+
+FIRST UPLOAD:
+
+Video A uploads successfully.
+
+It reaches the complete file size and receives a successful Bunny response.
+
+SECOND UPLOAD:
+
+The same video is uploaded again while the first Bunny upload is still processing.
+
+The application creates a NEW Bunny GUID and NEW TUS upload session.
+
+However, the second upload becomes stuck at a very small Upload-Offset and eventually reports:
+
+ProgressEvent
+
+with:
+
+response code: n/a
+
+Use the actual logs available in the project and report the exact values.
+
+Do not invent values.
+
+Explain what the logs prove and what they do NOT prove.
+
+==================================================
+17. IMPLEMENTED FIXES / RELIABILITY IMPROVEMENTS
+==================================================
+
+Identify all upload-related fixes that are already implemented in the current project.
+
+Examples may include:
+
+- same-file input reset
+- duplicate upload prevention
+- TUS 409 handling
+- offset reconciliation
+- bounded retry
+- CSRF correction
+- upload state reset
+- unique Bunny GUID handling
+- fallback upload
+- logging
+
+But ONLY include items actually found in the current code.
+
+For each:
+
+Problem:
+Fix:
+File:
+Method:
+Current status:
+
+==================================================
+18. FALLBACK UPLOAD
+==================================================
+
+Investigate whether a server-side/direct upload fallback exists.
+
+Document:
+
+- controller
+- service
+- route
+- when it is used
+- how it uploads to Bunny
+- whether it is primary or fallback
+- limitations
+
+==================================================
+19. SECURITY
+==================================================
+
+Document upload security:
+
+- authentication
+- authorization
+- CSRF
+- Bunny credentials
+- TUS signature
+- upload ownership
+- file validation
+- MIME validation
+- file size validation
+- rate limiting if present
+
+Do not expose secrets or credentials in the report.
+
+==================================================
+20. PERFORMANCE
+==================================================
+
+Explain:
+
+- chunk size
+- number of requests for large videos
+- proxy bandwidth
+- Laravel server involvement
+- Bunny CDN involvement
+- processing architecture
+- queue impact
+
+Clearly separate:
+
+Upload performance
+
+from:
+
+Processing performance.
+
+==================================================
+21. SCALABILITY
+==================================================
+
+Explain how the architecture behaves with:
+
+10 concurrent uploads
+100 concurrent uploads
+1,000 concurrent uploads
+
+Do not invent precise capacity numbers.
+
+Explain architectural bottlenecks.
+
+Especially discuss the fact that if TUS traffic passes through Laravel:
+
+Browser
+→ Laravel proxy
+→ Bunny
+
+then video bytes consume application-server bandwidth.
+
+==================================================
+22. CURRENT STATUS
+==================================================
+
+Create a clear status section:
+
+### Working
+
+List features confirmed working.
+
+For example, if confirmed:
+
+- Desktop video upload
+- Bunny integration
+- TUS creation
+- complete desktop upload
+- duplicate upload creating a new Bunny GUID
+- processing
+
+### Partially working / under investigation
+
+List only what is actually supported by evidence.
+
+### Known issue
+
+Clearly describe:
+
+Mobile upload reliability issue.
+
+Do NOT call chunking the root cause unless confirmed.
+
+Do NOT call QUEUE_CONNECTION=database the root cause unless confirmed.
+
+==================================================
+23. RECOMMENDATIONS
+==================================================
+
+Provide recommendations based on the actual project.
+
+Separate them into:
+
+### Immediate
+
+What should be done now.
+
+### Short-term
+
+What should be improved.
+
+### Future scalability
+
+What should be considered if upload volume increases significantly.
+
+Do not recommend a complete architecture rewrite unless the codebase clearly requires it.
+
+==================================================
+24. FINAL CLIENT CONCLUSION
+==================================================
+
+Write a professional client-facing conclusion.
+
+The conclusion should explain:
+
+- The upload architecture implemented.
+- Why TUS/chunking is used.
+- How Bunny CDN is integrated.
+- How video and reel uploads work.
+- How queues are used.
+- Desktop upload status.
+- Mobile upload issue.
+- What is confirmed.
+- What is still under investigation.
+- What is NOT confirmed as the root cause.
+
+Use professional, non-alarming language.
+
+Do not blame Bunny CDN, Laravel, TUS, chunking, mobile browsers, or queues without evidence.
+
+==================================================
+25. REPORT FORMAT
+==================================================
+
+Generate the final report in this structure:
+
+# BINTEO
+# Video & Reel Upload System
+# Technical Implementation & Current Status Report
+
+1. Executive Summary
+
+2. System Architecture
+
+3. Video Upload Flow
+
+4. Reel Upload Flow
+
+5. Controller Layer
+
+6. Middleware & Security
+
+7. View / Blade Layer
+
+8. Routes
+
+9. Bunny CDN Integration
+
+10. TUS Resumable Upload
+
+11. Chunking Implementation
+
+12. Upload Offset & 409 Handling
+
+13. Queue & Background Processing
+
+14. Video Processing Flow
+
+15. Reel Processing Flow
+
+16. Same-Video Upload Handling
+
+17. Desktop vs Mobile Upload Behavior
+
+18. Implemented Reliability Improvements
+
+19. Fallback Upload
+
+20. Performance
+
+21. Scalability
+
+22. Current Known Issue
+
+23. Root-Cause Assessment
+
+24. Recommendations
+
+25. Final Conclusion
+
+==================================================
+26. IMPORTANT REPORT RULES
+==================================================
+
+This report is for the CLIENT.
+
+Use professional language.
+
+Do not include internal debugging arguments.
+
+Do not say:
+
+"I think..."
+
+"Maybe..."
+
+"Probably..."
+
+unless clearly labeling an unconfirmed hypothesis.
+
+Use:
+
+"Confirmed from the code..."
+"Observed in the logs..."
+"Not confirmed..."
+"Under investigation..."
+
+Do not expose:
+
+- API keys
+'- secrets
+- passwords
+- tokens
+- private credentials
+
+Do not modify any project files.
+
+Do not generate fake test results.
+
+Do not claim mobile is fixed unless the codebase contains evidence of the fix and actual test evidence is available.
+
+Do not claim chunking is the root cause unless the evidence proves it.
+
+Do not claim QUEUE_CONNECTION=database is the root cause unless the code proves it.
+
+The final report must represent the CURRENT actual implementation of the project.

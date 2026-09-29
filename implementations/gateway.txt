@@ -1,0 +1,116 @@
+╔══════════════════════════════════════════════════════════════╗
+║        GATEWAY / PAYMENT ARCHITECTURE PATTERN               ║
+║     app/Http/Controllers/Gateway/ + Admin gateway CRUD     ║
+╚══════════════════════════════════════════════════════════════╝
+
+══════════════════════════════════════════════════════════════
+  1. GATEWAY CONTROLLERS (2 frontend + 4 admin = 6 total)
+══════════════════════════════════════════════════════════════
+
+  ┌─ FRONTEND GATEWAY ──────────────────────────────────────┐
+  │                                                        │
+  │  Gateway/PaymentController.php                         │
+  │    → Handles all payment/deposit requests from users   │
+  │    → Routes: web.php (no prefix, various paths)        │
+  │    → Used by: User deposits, plan purchases, OTT buys │
+  │                                                        │
+  │  Gateway/Razorpay/ProcessController.php                │
+  │    → Razorpay-specific payment processing              │
+  │    → IPN/webhook handling, payment verification        │
+  │    → Called by PaymentController for Razorpay flows   │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+  ┌─ ADMIN GATEWAY MANAGEMENT ─────────────────────────────┐
+  │                                                        │
+  │  Admin/AutomaticGatewayController.php                  │
+  │    → Manage auto gateways (Razorpay, Stripe, etc.)    │
+  │    → CRUD for gateway credentials and settings         │
+  │                                                        │
+  │  Admin/ManualGatewayController.php                     │
+  │    → Manage manual gateways (Bank Transfer, etc.)      │
+  │    → CRUD for manual payment instructions              │
+  │                                                        │
+  │  Admin/DepositController.php                           │
+  │    → View/manage all user deposits                    │
+  │    → Approve/reject pending deposits                  │
+  │                                                        │
+  │  Admin/WithdrawalController.php                        │
+  │  Admin/WithdrawMethodController.php                   │
+  │    → Manage withdrawal methods and requests            │
+  │    → Approve/reject/pending withdrawals               │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  2. PAYMENT FLOW
+══════════════════════════════════════════════════════════════
+
+  User clicks "Pay"
+       │
+       ▼
+  PaymentController (or PlanController, OttPlanController)
+       │
+       ├── Creates Deposit record (status: pending)
+       ├── Redirects to gateway (Razorpay/Stripe/Manual)
+       │
+       ▼
+  Gateway processes payment
+       │
+       ├── Success → Razorpay/ProcessController (IPN/webhook)
+       │            → Updates Deposit (status: success)
+       │            → Credits user wallet or activates plan
+       │
+       └── Failure → Returns error
+                    → Deposit stays pending/rejected
+
+══════════════════════════════════════════════════════════════
+  3. KEY MODELS
+══════════════════════════════════════════════════════════════
+
+  Gateway           → Payment gateway configurations
+  GatewayCurrency   → Currency settings per gateway
+  Deposit           → Deposit/transaction records
+  Withdrawal        → Withdrawal requests
+  WithdrawMethod    → Withdrawal method configurations
+  WithdrawSetting   → Withdrawal settings
+
+══════════════════════════════════════════════════════════════
+  4. SERVICES TO CREATE
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  1. PaymentService.php  → app/Services/                │
+  │     Methods: initiateDeposit, processGatewayCallback,   │
+  │              verifyPayment, approveDeposit, rejectDeposit│
+  │     Used by: PaymentController, Razorpay/ProcessController│
+  │                                                        │
+  │  2. WithdrawalService.php  → app/Services/             │
+  │     Methods: submitWithdraw, approveWithdraw,           │
+  │              rejectWithdraw, getWithdrawalHistory       │
+  │     Used by: User\WithdrawController, Admin\Withdrawal  │
+  │                                                        │
+  │  3. AdminGatewayService.php  → app/Services/Admin/     │
+  │     Methods: toggleGateway, updateCredentials,          │
+  │              getGatewayList, manageManualGateway        │
+  │     Used by: AutomaticGatewayController,               │
+  │              ManualGatewayController                   │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  ⚠  DO'S & DON'TS
+══════════════════════════════════════════════════════════════
+
+  ✅ DO's:
+  • Keep Gateway/PaymentController and Razorpay/ProcessController
+    exactly where they are — routes reference them directly.
+  • Use DB::transaction for all financial operations.
+  • Log all payment callbacks for debugging.
+  • Use Deposit model for tracking all payments.
+
+  ❌ DON'Ts:
+  • DON'T move or rename Gateway controllers — routes break.
+  • DON'T modify Razorpay IPN/webhook handling.
+  • DON'T change deposit/withdrawal status flow.
+  • DON'T remove existing gateway configurations.
+  • DON'T bypass the Deposit model — it's the audit trail.
