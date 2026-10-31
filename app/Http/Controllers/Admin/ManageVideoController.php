@@ -171,6 +171,7 @@ class ManageVideoController extends Controller {
     }
 
     protected function videoData($scope = null, $userId = null) {
+        $userId = is_numeric($userId) ? (int) $userId : null;
         return $this->service->getVideosByScope($scope, $userId);
     }
 

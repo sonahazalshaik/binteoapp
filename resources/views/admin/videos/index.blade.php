@@ -155,7 +155,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td class="text-muted text-center py-10" colspan="100%">{{ __($emptyMessage) }}</td>
+                        <td class="text-muted text-center py-10" colspan="100%">{{ __($emptyMessage ?? 'No videos found') }}</td>
                     </tr>
                 @endforelse
             </tbody>

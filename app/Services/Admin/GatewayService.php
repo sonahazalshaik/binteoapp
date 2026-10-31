@@ -207,8 +207,9 @@ class GatewayService
         return $method;
     }
 
-    public function getDeposits(?string $scope = null, bool $withSummary = false, ?int $userId = null): mixed
+    public function getDeposits(?string $scope = null, bool $withSummary = false, int|string|null $userId = null): mixed
     {
+        $userId = is_numeric($userId) ? (int) $userId : null;
         $deposits = $scope ? Deposit::$scope()->with(['user', 'gateway', 'marketplace']) : Deposit::with(['user', 'gateway', 'marketplace']);
 
         if ($userId) {
@@ -283,8 +284,9 @@ class GatewayService
         Deposit::findOrFail($id)->delete();
     }
 
-    public function getWithdrawals(?string $scope = null, bool $withSummary = false, ?int $userId = null): mixed
+    public function getWithdrawals(?string $scope = null, bool $withSummary = false, int|string|null $userId = null): mixed
     {
+        $userId = is_numeric($userId) ? (int) $userId : null;
         $withdrawals = $scope
             ? Withdrawal::$scope()
             : Withdrawal::where('status', '!=', Status::PAYMENT_INITIATE);

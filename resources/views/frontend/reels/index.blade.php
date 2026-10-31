@@ -44,7 +44,9 @@
             <div class="relative flex items-center lg:justify-center 2xl:gap-x-12 w-full h-full">
                 
                 {{-- DESKTOP LEFT INFO (Phase) --}}
-                <div class="hidden 2xl:flex flex-col gap-6 z-20 mb-12 w-64 shrink-0 pointer-events-auto">
+                {{-- Cap the panel to the available height and scroll internally so a
+                     reel with many hashtags can never overflow into the bottom nav. --}}
+                <div class="hidden 2xl:flex flex-col gap-6 z-20 w-64 max-h-full shrink-0 pointer-events-auto overflow-y-auto overflow-x-hidden custom-scrollbar pr-2 py-6">
                     <div class="flex flex-col gap-5">
                         <div class="flex items-center gap-4">
                             <div class="relative">
@@ -94,32 +96,40 @@
                             </div>
                         </div>
 
-                        <div class="space-y-3" x-data="{ expanded: false }">
+                        <div class="space-y-3">
                             <div class="relative group cursor-pointer" x-on:click.stop="openDetails('{{ $reel->slug }}')">
-                                <h3 class="text-white font-black text-base leading-tight drop-shadow-md line-clamp-2">{{ $reel->title }}</h3>
-                                @if(strlen($reel->title) > 50)
-                                    <button class="text-orange-500 hover:text-orange-400 font-black text-[10px] uppercase tracking-widest outline-none transition-colors mt-1 block">
+                                <h3 class="text-white font-black text-base leading-tight drop-shadow-md line-clamp-2 break-words hover:text-white/90 transition-colors">{{ $reel->title }}</h3>
+                                @if(strlen($reel->title) > 50 && !$reel->description)
+                                    <button class="text-orange-500 hover:text-orange-400 font-black text-[10px] uppercase tracking-widest outline-none transition-colors mt-1 block cursor-pointer">
                                         ...more
                                     </button>
                                 @endif
                             </div>
                             @if($reel->description)
-                                <div class="relative cursor-pointer" x-on:click.stop="expanded = !expanded">
-                                    <p class="text-white/50 text-xs leading-relaxed drop-shadow-sm transition-all duration-300"
-                                       :class="expanded ? '' : 'line-clamp-3'">{!! nl2br(preg_replace('/#([\p{L}\p{M}\p{N}_]+)/u', '<a href="/search?q=%23$1" class="text-orange-500 hover:underline">#$1</a>', e($reel->description))) !!}</p>
-                                    <button x-show="!expanded"
-                                            class="text-orange-500 hover:text-orange-400 font-black text-[10px] uppercase tracking-widest outline-none transition-colors mt-1 block">
+                                <div class="relative cursor-pointer" x-on:click.stop="openDetails('{{ $reel->slug }}')">
+                                    <p class="text-white/50 text-xs leading-relaxed drop-shadow-sm transition-all duration-300 break-words line-clamp-3">{!! nl2br(preg_replace('/#([\p{L}\p{M}\p{N}_]+)/u', '<a href="/search?q=%23$1" class="text-orange-500 hover:underline">#$1</a>', e($reel->description))) !!}</p>
+                                    <button type="button"
+                                            x-on:click.stop="openDetails('{{ $reel->slug }}')"
+                                            class="text-orange-500 hover:text-orange-400 font-black text-[10px] uppercase tracking-widest outline-none transition-colors mt-1 block cursor-pointer">
                                         ...more
                                     </button>
                                 </div>
                             @endif
                             @if($reel->hashtags->count() > 0)
-                                <div class="flex flex-wrap gap-1.5 pt-1">
-                                    @foreach($reel->hashtags as $hashtag)
-                                        <a href="/search?q=%23{{ urlencode(trim($hashtag->hashtag)) }}" class="inline-flex items-center px-2 py-0.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 rounded-full text-[10px] font-bold transition-all hover:scale-105">
+                                <div class="flex flex-wrap items-center gap-1.5 pt-1">
+                                    @foreach($reel->hashtags->take(3) as $hashtag)
+                                        <a href="/search?q=%23{{ urlencode(trim($hashtag->hashtag)) }}" class="inline-flex items-center max-w-full px-2 py-0.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 rounded-full text-[10px] font-bold transition-all hover:scale-105 break-all">
                                             #{{ trim($hashtag->hashtag) }}
                                         </a>
                                     @endforeach
+                                    @if($reel->hashtags->count() > 3)
+                                        <button x-on:click.stop="openDetails('{{ $reel->slug }}')"
+                                                type="button"
+                                                class="inline-flex items-center px-2.5 py-0.5 bg-orange-500/20 hover:bg-orange-500 text-orange-400 hover:text-white rounded-full text-[10px] font-black uppercase tracking-wider transition-all hover:scale-105 active:scale-95 cursor-pointer border border-orange-500/30 shadow-sm"
+                                                title="View all {{ $reel->hashtags->count() }} tags">
+                                            +{{ $reel->hashtags->count() - 3 }} more
+                                        </button>
+                                    @endif
                                 </div>
                             @endif
                         </div>
@@ -1765,6 +1775,7 @@
 
                 this.$nextTick(() => {
                     this.activateSlide(this.currentIndex);
+                    this.scrollSidebarToActive(this.currentIndex);
                     // OPTIMIZED: Only next 1 lightweight metadata - current has priority
                     this.preloadSlide(1);
                     this.startAutoPolling();
@@ -1775,16 +1786,13 @@
                     if (v) {
                         v.muted = !val;
                     }
+                    if (!val) {
+                        this.enforceExclusivePlayback(this.currentIndex);
+                    }
                 });
 
                 this.$watch('currentIndex', (newIdx) => {
-                    const slug = this.reelsSlugs[newIdx];
-                    if (slug) {
-                        const activeEl = document.getElementById('sidebar-reel-' + slug);
-                        if (activeEl) {
-                            activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                        }
-                    }
+                    this.$nextTick(() => this.scrollSidebarToActive(newIdx));
                 });
 
                 window.addEventListener('comment-deleted', (e) => {
@@ -1881,6 +1889,20 @@
                 });
             },
 
+            // Single-source-of-audio guarantee: only the active slide may be
+            // unmuted/playing. Buffered neighbours in the ±2 DOM window are
+            // paused and muted so their audio can never overlap the current reel.
+            enforceExclusivePlayback(activeIndex = this.currentIndex) {
+                document.querySelectorAll('video[data-video]').forEach(v => {
+                    const idx = v.getAttribute('data-video');
+                    if (idx === null || String(idx) === String(activeIndex)) return;
+                    try {
+                        if (!v.paused) v.pause();
+                    } catch(e) {}
+                    v.muted = true;
+                });
+            },
+
             startAutoPolling() {
                 setInterval(() => {
                     const currentSlide = document.querySelector('[data-video="' + this.currentIndex + '"]')?.closest('.w-full.relative.flex');
@@ -1968,6 +1990,38 @@
                 } else {
                     window.location.href = `${this.baseUrl}/reels?reel=${slug}`;
                 }
+            },
+
+            // Keep the desktop "More Reels" list in sync with the active slide.
+            // Scrolls only the list container (never the page) so the active
+            // item is brought into view / centred as the user scrolls the feed.
+            scrollSidebarToActive(index = this.currentIndex) {
+                const slug = this.reelsSlugs[index];
+                if (!slug) return;
+
+                const container = document.getElementById('sidebar-reels-container');
+                if (!container) return;
+
+                const item = document.getElementById('sidebar-reel-' + slug);
+                if (!item) return;
+
+                const containerRect = container.getBoundingClientRect();
+                const itemRect = item.getBoundingClientRect();
+
+                // Already fully visible inside the list — nothing to do.
+                if (itemRect.top >= containerRect.top && itemRect.bottom <= containerRect.bottom) {
+                    return;
+                }
+
+                const target = container.scrollTop
+                    + (itemRect.top - containerRect.top)
+                    - (container.clientHeight / 2)
+                    + (item.offsetHeight / 2);
+
+                container.scrollTo({
+                    top: Math.max(0, target),
+                    behavior: 'smooth'
+                });
             },
 
             purgeFarSlides() {
@@ -2112,6 +2166,7 @@
             },
 
             activateSlide(i) {
+                this.enforceExclusivePlayback(i);
                 this.isPausedByUser = false;
                 this.slideStartTimes[i] = Date.now();
                 clearTimeout(this.unplayableTimers[i]);
@@ -2154,15 +2209,18 @@
                         v.addEventListener('error', () => this.markUnplayable(i));
 
                         const loader = document.getElementById('reel-loader-' + i);
+                        const isActiveSlide = () => String(v.getAttribute('data-video')) === String(this.currentIndex);
                         v.addEventListener('waiting', () => { 
                             if (loader) loader.style.display = 'flex'; 
-                            if (!this.isPausedByUser && v.paused) {
+                            // Never auto-resume a buffered/neighbour slide — only the
+                            // active reel is allowed to (re)start playback.
+                            if (isActiveSlide() && !this.isPausedByUser && v.paused) {
                                 this.tryPlay(v);
                             }
                         });
                         v.addEventListener('stalled', () => { 
                             if (loader && v.readyState < 3) loader.style.display = 'flex'; 
-                            if (!this.isPausedByUser && v.paused) {
+                            if (isActiveSlide() && !this.isPausedByUser && v.paused) {
                                 this.tryPlay(v);
                             }
                         });
@@ -2304,6 +2362,13 @@
             },
 
             tryPlay(v) {
+                // Guard: a buffered neighbour must never start playing audio while
+                // another reel is on screen. Only the active slide may play.
+                const slideIdx = v.getAttribute('data-video');
+                if (slideIdx !== null && String(slideIdx) !== String(this.currentIndex)) {
+                    v.muted = true;
+                    return;
+                }
                 let playPromise = v.play();
                 if (playPromise !== undefined) {
                     playPromise.catch(error => {
@@ -2352,6 +2417,7 @@
                 }
                 let v = document.querySelector('[data-video="' + i + '"]');
                 if (v) {
+                    v.muted = true;
                     v.pause();
                     if (v.hls) {
                         v.hls.stopLoad();

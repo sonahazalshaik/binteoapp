@@ -405,8 +405,9 @@ class VideoService
         ];
     }
 
-    public function getVideosByScope(?string $scope = null, ?int $userId = null, int $perPage = 15)
+    public function getVideosByScope(?string $scope = null, int|string|null $userId = null, int $perPage = 15)
     {
+        $userId = is_numeric($userId) ? (int) $userId : null;
         $query = $scope ? Video::$scope() : Video::query();
 
         if ($userId) {

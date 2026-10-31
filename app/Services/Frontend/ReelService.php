@@ -192,13 +192,9 @@ class ReelService
             });
         }
 
-        $moreReels = $moreQuery->with(['user', 'user.channel'])
-            ->withCount(['comments', 'likes', 'shares'])
-            ->where('status', Status::PUBLISHED)
-            ->where('bunny_status', 'ready')
-            ->inRandomOrder()
-            ->limit(15)
-            ->get();
+        // The "More Reels" sidebar mirrors the active feed so it can stay in
+        // sync (active highlight + auto-scroll) with the slide being watched.
+        $moreReels = $reels;
 
         $playlistData = [];
         $watchLaterReelIds = [];

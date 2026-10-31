@@ -195,8 +195,9 @@ class SecurityService
         $report->save();
     }
 
-    public function getTransactions(?int $userId = null, int $perPage = 15)
+    public function getTransactions(int|string|null $userId = null, int $perPage = 15)
     {
+        $userId = is_numeric($userId) ? (int) $userId : null;
         $remarks = Transaction::distinct('remark')->orderBy('remark')->get('remark');
 
         $transactions = Transaction::searchable(['trx', 'user:username'])

@@ -144,7 +144,7 @@ class MarketingService
         }
     }
 
-    public function getAdvertisements(?string $type = null, ?int $userId = null, int $perPage = 15)
+    public function getAdvertisements(?string $type = null, int|string|null $userId = null, int $perPage = 15)
     {
         return $this->advertisementData($type, $userId, $perPage);
     }
@@ -344,8 +344,9 @@ class MarketingService
         $formProcessor->generate('advertiser', $exist, 'act');
     }
 
-    public function getCampaigns(?string $scope = null, ?int $userId = null, int $perPage = 15)
+    public function getCampaigns(?string $scope = null, int|string|null $userId = null, int $perPage = 15)
     {
+        $userId = is_numeric($userId) ? (int) $userId : null;
         $query = $scope ? Campaign::$scope() : Campaign::query();
 
         if ($userId) {
@@ -367,8 +368,9 @@ class MarketingService
         return Campaign::changeStatus($id);
     }
 
-    protected function advertisementData(?string $type = null, ?int $userId = null, int $perPage = 15)
+    protected function advertisementData(?string $type = null, int|string|null $userId = null, int $perPage = 15)
     {
+        $userId = is_numeric($userId) ? (int) $userId : null;
         $query = Advertisement::query();
 
         if ($type) {

@@ -515,6 +515,7 @@
             saveTimeout: null,
             videoPreview: null,
             thumbnailPreview: @json(($draft && $draft->thumbnail_path) ? getImage(getFilePath('thumbnail') . '/' . $draft->thumbnail_path) : null),
+            thumbnailFile: null,
             videoFile: null,
             isUnplayableFormat: false,
             uploading: false,
@@ -1632,7 +1633,7 @@
                             formData.append('tags', JSON.stringify(this.tags));
                             formData.append('is_draft', '0');
 
-                            await fetch("{{ route('videos.prepare_upload') }}", {
+                            const prepRes = await fetch("{{ route('videos.prepare_upload') }}", {
                                 method: 'POST',
                                 headers: {
                                     'X-CSRF-TOKEN': '{{ csrf_token() }}',
@@ -1640,6 +1641,36 @@
                                 },
                                 body: formData
                             });
+
+                            const prepData = await prepRes.json().catch(() => ({}));
+
+                            // Upload the manually selected thumbnail before redirecting.
+                            // Without this the published video falls back to the auto-generated frame.
+                            const thumbInput = document.querySelector('input[name="thumbnail"]');
+                            const thumbFile = (thumbInput && thumbInput.files && thumbInput.files[0]) || this.thumbnailFile || null;
+
+                            if (thumbFile && prepData.success && prepData.video_slug) {
+                                const swalStatusEl = document.getElementById('swal-upload-status');
+                                if (swalStatusEl) {
+                                    swalStatusEl.innerText = 'UPLOADING THUMBNAIL...';
+                                }
+
+                                const thumbData = new FormData();
+                                thumbData.append('thumbnail', thumbFile);
+
+                                const thumbRes = await fetch(`/videos/${prepData.video_slug}/thumbnail`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                                        'Accept': 'application/json'
+                                    },
+                                    body: thumbData
+                                });
+
+                                if (!thumbRes.ok) {
+                                    console.warn('Thumbnail upload failed with status', thumbRes.status);
+                                }
+                            }
                         } catch(e) {
                             console.warn('Failed to send publish status during redirect:', e);
                         }
