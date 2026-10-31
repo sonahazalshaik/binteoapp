@@ -1,0 +1,300 @@
+╔══════════════════════════════════════════════════════════════╗
+║        INFRASTRUCTURE & SUPPORT ARCHITECTURE                ║
+║     Jobs, Events, Middleware, Services, Traits, Libs       ║
+╚══════════════════════════════════════════════════════════════╝
+
+══════════════════════════════════════════════════════════════
+  1. EXISTING SERVICES (5 — KEEP AS-IS)
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  SERVICE               PURPOSE                          │
+  ├─────────────────────────────────────────────────────────┤
+  │  BunnyStreamService    Video/Reel upload & streaming    │
+  │                        via Bunny CDN (TUS protocol)     │
+  │  FirebaseService       Push notifications to mobile     │
+  │                        (FCM - Firebase Cloud Messaging) │
+  │  CloudFlareService     CDN asset delivery, caching      │
+  │  BrevoMailService      Transactional emails (Sendinblue)│
+  │  ZeptoMailService      Alternative email delivery       │
+  └─────────────────────────────────────────────────────────┘
+
+  These are infrastructure services — DO NOT refactor or move.
+  They are instantiated directly in controllers where needed:
+    app(BunnyStreamService::class)->createVideo(...)
+    new FirebaseService
+    app(CloudFlareService::class)->asset(...)
+
+══════════════════════════════════════════════════════════════
+  2. JOBS (3)
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  JOB                     TRIGGERED BY      QUEUE        │
+  ├─────────────────────────────────────────────────────────┤
+  │  ProcessVideo            Video upload       default     │
+  │                          (VideoController,              │
+  │                           UploadController)             │
+  │                                                        │
+  │  CompressReel            Reel upload        default     │
+  │                          (ReelController)               │
+  │                                                        │
+  │  SendFirebaseNotification Video purchase    default     │
+  │                          (VideoController::purchase)   │
+  └─────────────────────────────────────────────────────────┘
+
+  Jobs are dispatched via:
+    ProcessVideo::dispatch($video)
+    ProcessVideo::dispatchSync($video)  ← synchronous variant
+    SendFirebaseNotificationJob::dispatch($userId, $data, $type)
+
+══════════════════════════════════════════════════════════════
+  3. EVENTS (2)
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  EVENT                  CHANNEL         BROADCAST       │
+  ├─────────────────────────────────────────────────────────┤
+  │  UserNotification       user-notify     Reverb/Pusher   │
+  │                        .{user_id}      (WebSocket)     │
+  │                                                        │
+  │  StreamMessageSent      live-chat       Reverb/Pusher   │
+  │                        .{stream_id}    (WebSocket)     │
+  └─────────────────────────────────────────────────────────┘
+
+  Broadcast channels defined in routes/channels.php:
+    - User model channel (private-user-notify.{id})
+    - LiveStream model channel (private-live-chat.{id})
+
+══════════════════════════════════════════════════════════════
+  4. MIDDLEWARE (18)
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  MIDDLEWARE                   PURPOSE                   │
+  ├─────────────────────────────────────────────────────────┤
+  │  AdminMiddleware              Admin guard check         │
+  │  BlockAdminFromFrontend       Prevent admin on frontend │
+  │  CaptureTrafficSource         UTM/source tracking       │
+  │  CheckAppVersion              Force app update          │
+  │  CheckMaintenanceMode         Maintenance mode redirect │
+  │  CheckModerationNotices       Content moderation alerts │
+  │  CheckModerationStrikes       Copyright strike check    │
+  │  CheckUserStatus              Ban/suspension check      │
+  │  ForceUpdateMiddleware        Force app version update  │
+  │  Honeypot                     Bot spam protection       │
+  │  IpBlockingMiddleware         Blocked IP check          │
+  │  LogSystemPerformance         Performance logging       │
+  │  MarketplaceAuth              Marketplace session auth  │
+  │  SecurityHeaders              CSP, XSS, clickjack       │
+  │  ThrottleVideoViews           Rate limit video views    │
+  │  UpdateLastSeen               User online tracking      │
+  │  VisitorLogMiddleware         Visitor analytics         │
+  │  XssSanitization              Input sanitization        │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  5. TRAITS (8)
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  TRAIT                     USED BY                     │
+  ├─────────────────────────────────────────────────────────┤
+  │  GetDateMonths             Admin\AdminController        │
+  │  AdminAdsManage            Admin advertisement traits   │
+  │  AdsManager                Ad management logic         │
+  │  ChannelManager            Channel creation/update      │
+  │  GlobalStatus              Model status scopes          │
+  │  StorageDriver             Storage driver switching     │
+  │  SupportTicketManager      Ticket CRUD logic            │
+  │  UserNotify                User notification helpers    │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  6. LIBRARIES (app/Lib/ — 12 files)
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  LIBRARY                   PURPOSE                      │
+  ├─────────────────────────────────────────────────────────┤
+  │  Captcha                   reCAPTCHA + custom captcha   │
+  │  ClientInfo                IP, OS, browser detection    │
+  │  CurlRequest               HTTP requests (curl wrapper) │
+  │  FileManager               File upload management       │
+  │  FormProcessor             Dynamic form processing      │
+  │  GoogleAuthenticator       2FA verification             │
+  │  HolidayCalculator         Holiday/off-day calculation  │
+  │  Intended                  Redirect after login         │
+  │  RequiredConfig            Config validation            │
+  │  Searchable                Model search scopes          │
+  │  SocialLogin               Social auth handlers         │
+  │  UserNotificationSender    Notification dispatch        │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  7. CONSOLE COMMANDS (3)
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  COMMAND                   SCHEDULE                    │
+  ├─────────────────────────────────────────────────────────┤
+  │  AggregateAnalyticsData    Every 5 minutes / hourly     │
+  │  AggregateDailyAnalytics   Daily at midnight            │
+  │  UpdateFirebaseConfig      On deploy / manual           │
+  └─────────────────────────────────────────────────────────┘
+
+  Defined in routes/console.php
+
+══════════════════════════════════════════════════════════════
+  8. MAIL — EMAIL TEMPLATES (10 mailables)
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  MAILABLE              TRIGGER                         │
+  ├─────────────────────────────────────────────────────────┤
+  │  UserWelcomeMail       User registration               │
+  │  PasswordResetMail     Password reset request          │
+  │  AdminPasswordResetMail Admin password reset           │
+  │  VideoPurchaseMail     User purchased a video          │
+  │  PlanPurchaseMail      User bought a subscription plan │
+  │  OttPlanPurchaseMail   User bought OTT plan            │
+  │  ChannelCreationMail   User created a channel          │
+  │  MonetizationApprovalMail Monetization approved         │
+  │  MarketplacePlanMail   Marketplace plan purchase       │
+  │  MarketplaceWelcomeMail Marketplace registration       │
+  └─────────────────────────────────────────────────────────┘
+
+  All mailables in app/Mail/ and views in resources/views/emails/
+
+══════════════════════════════════════════════════════════════
+  9. NOTIFY — MULTI-CHANNEL NOTIFICATIONS (7 files)
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  FILE                   PURPOSE                         │
+  ├─────────────────────────────────────────────────────────┤
+  │  Notify.php             Main orchestrator              │
+  │  NotifyProcess.php      Processing logic               │
+  │  Notifiable.php         Notifiable trait               │
+  │  Email.php              Email channel                  │
+  │  Sms.php                SMS channel                    │
+  │  SmsGateway.php         SMS provider gateway           │
+  │  Push.php               Push notification channel      │
+  └─────────────────────────────────────────────────────────┘
+
+  Usage: notify($user, 'template_name', $shortCodes, $sendVia)
+  Templates stored in NotificationTemplate model.
+
+══════════════════════════════════════════════════════════════
+  10. DATABASE NOTIFICATIONS (2 files)
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  NOTIFICATION            EVENT/OCCASION                 │
+  ├─────────────────────────────────────────────────────────┤
+  │  NewComment              When someone comments          │
+  │  NewSubscriber           When someone subscribes        │
+  └─────────────────────────────────────────────────────────┘
+
+  These are Laravel database notifications stored in
+  the notifications table.
+
+══════════════════════════════════════════════════════════════
+  11. VIEW COMPONENTS (8 Blade Components)
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  COMPONENT              USAGE                           │
+  ├─────────────────────────────────────────────────────────┤
+  │  AppLayout              <x-app-layout> main layout     │
+  │  AdminLayout            <x-admin-layout> admin layout  │
+  │  GuestLayout            <x-guest-layout> auth layout   │
+  │  Captcha                <x-captcha> captcha display    │
+  │  ConfirmationModal      <x-confirmation-modal>         │
+  │  FormGenerator          <x-form-generator>             │
+  │  ViserForm              <x-viser-form> dynamic form    │
+  │  WithdrawForm           <x-withdraw-form>              │
+  └─────────────────────────────────────────────────────────┘
+
+  Views: resources/views/components/*.blade.php (39 templates)
+  Classes: app/View/Components/*.php (8 classes)
+
+══════════════════════════════════════════════════════════════
+  12. POLICIES, RULES, PROVIDERS
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  FILE                    PURPOSE                        │
+  ├─────────────────────────────────────────────────────────┤
+  │  PlaylistPolicy.php      Authorization for playlists    │
+  │                          (view, create, update, delete) │
+  │                                                        │
+  │  FileTypeValidate.php    Validation rule for file types │
+  │                          Used in admin upload forms     │
+  │                                                        │
+  │  AppServiceProvider.php  Service container bindings     │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  13. LEGACY ROUTE FILES
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  FILE                LOADED IN          CONTAINS        │
+  ├─────────────────────────────────────────────────────────┤
+  │  admin-legacy.php    admin group        40+ admin       │
+  │                      (web.php)          route groups    │
+  │                                                        │
+  │  user-legacy.php     auth group         10+ user        │
+  │                      (web.php)          route groups    │
+  │                                                        │
+  │  These files extend the main route files. They contain  │
+  │  the bulk of admin CRUD and user dashboard routes.      │
+  │  DO NOT modify them independently — they are loaded     │
+  │  inside the middleware groups defined in web.php.       │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  14. APP/HELPERS.PHP — GLOBAL FUNCTIONS
+══════════════════════════════════════════════════════════════
+
+  These are used EVERYWHERE in the project. DO NOT remove:
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  FUNCTION        USAGE                                  │
+  ├─────────────────────────────────────────────────────────┤
+  │  gs($key)        Get GeneralSetting (cached)           │
+  │  activeTemplate  Get current theme prefix              │
+  │  getPaginate()   Get pagination limit                  │
+  │  getTrx()        Generate transaction ID               │
+  │  fileUploader()  Upload file to storage                │
+  │  getFilePath()   Get storage path by key               │
+  │  getImage()      Get displayable image URL             │
+  │  showAmount()    Format currency amount                │
+  │  getContent()    Get frontend content                  │
+  │  notify()        Send notifications (mail/sms/push)    │
+  │  getIpInfo()     Get visitor IP/country               │
+  │  slug()          Create URL slug                       │
+  │  diffForHumans() Human-readable date                  │
+  │  showDateTime()  Formatted date/time                  │
+  │  formatNumber()  Compact number (1K, 2.5M)            │
+  │  responseSuccess/Error  JSON API responses            │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  ⚠  DO'S & DON'TS
+══════════════════════════════════════════════════════════════
+
+  ✅ DO's:
+  • Keep existing infrastructure services as-is.
+  • Dispatch jobs via ::dispatch() for async or ::dispatchSync().
+  • Use existing middleware for security (XssSanitization, SecurityHeaders).
+  • Use global helpers (gs(), getTrx(), etc.) — they are the standard.
+
+  ❌ DON'Ts:
+  • DON'T remove or rename existing infrastructure services.
+  • DON'T change job dispatch parameters.
+  • DON'T modify broadcast events/channels without checking Pusher/Reverb.
+  • DON'T remove global helper functions — hundreds of files depend on them.
+  • DON'T change middleware registration order in Kernel.php.
+  • DON'T modify the FileManager or ClientInfo libraries.

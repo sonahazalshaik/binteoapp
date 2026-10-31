@@ -1,0 +1,77 @@
+{
+    "about": {
+        "name": "About Us",
+        "builder": true,
+        "content": {
+            "title": "text",
+            "image": {
+                "type": "image",
+                "size": "600x400"
+            },
+            "content": "textarea-nic",
+            "title1": "text",
+            "image1": {
+                "type": "image",
+                "size": "600x400"
+            },
+            "content1": "textarea-nic",
+            "title2": "text",
+            "image2": {
+                "type": "image",
+                "size": "600x400"
+            },
+            "content2": "textarea-nic",
+            "title3": "text",
+            "image3": {
+                "type": "image",
+                "size": "600x400"
+            },
+            "content3": "textarea-nic",
+            "title4": "text",
+            "image4": {
+                "type": "image",
+                "size": "600x400"
+            },
+            "content4": "textarea-nic"
+        }
+    },
+    "policy_pages": {
+        "name": "Policy Pages",
+        "builder": true,
+        "element": {
+            "title": "text",
+            "content": "textarea-ck",
+            "modal": true
+        }
+    },
+    "support": {
+        "name": "Support & FAQ",
+        "builder": true,
+        "element": {
+            "title": "text",
+            "icon": "icon",
+            "content": "textarea",
+            "is_faq": {
+                "type": "checkbox",
+                "label": "Show in FAQ"
+            },
+            "modal": true
+        }
+    },
+    "community_guidelines": {
+        "name": "Community Guidelines",
+        "builder": true,
+        "content": {
+            "title": "text",
+            "content": "textarea-ck"
+        }
+    },
+    "marketplace_terms": {
+        "name": "Marketplace Terms",
+        "builder": true,
+        "content": {
+            "title": "text",
+            "content": "textarea-ck"
+        }
+    }
+}

@@ -1,0 +1,177 @@
+# BINTEO
+# Video & Reel Upload System
+# Technical Implementation & Current Status Report
+
+1. Executive Summary
+--------------------------------------------------------------------------------
+This report provides a technical overview of the video and reel upload architectures in the BINTEO platform, highlighting integration points with Bunny CDN, the TUS resumable upload protocol, Laravel middleware layers, and asset pipelines. Additionally, it provides an objective assessment of the mobile upload issues observed in production telemetry and lists the reliability changes implemented to date.
+
+2. System Architecture
+--------------------------------------------------------------------------------
+The application uses a hybrid upload model to balance user experience, reliability, scale, and mobile browser compatibility:
+*   **Primary Path (Proxied TUS)**: The client browser uploads files chunk-by-chunk to a same-origin proxy route (`/tus-proxy`) controlled by the Laravel application. The proxy forwards these chunks in real-time to Bunny CDN's TUS endpoint. This proxy wrapper acts as a mediator to satisfy strict mobile browser CORS boundaries and handle transient chunk conflicts securely.
+*   **Fallback Path (Direct Upload)**: If the TUS upload fails repeatedly (due to client network loss or stream corruption), the frontend falls back automatically to a direct, single-payload HTTP PUT request to Bunny CDN via the server backend.
+
+3. Video Upload Flow
+--------------------------------------------------------------------------------
+The step-by-step lifecycle of a video upload is implemented as follows:
+1.  **File Selection**: The user selects a file on create.blade.php. The `onVideoChange` handler extracts local metadata (title, duration, file size).
+2.  **Upload Preparation**: A request is sent to `POST /videos/prepare-upload`. The `BunnyUploadController@prepareUpload` validates metadata and calls `UploadService@prepareUpload`.
+3.  **Bunny Video Creation**: The service calls Bunny CDN's API to reserve a slot (returning a Bunny Video GUID). It also creates a local database entry (with status `uploading`).
+4.  **TUS Session Init**: The service generates parameters (SHA256 signature, expiry, library details) and returns them to the browser along with the upload proxy endpoint `/tus-proxy`.
+5.  **Chunk Transfer**: The browser TUS client starts uploading the file in 2MB chunks to the same-origin proxy `/tus-proxy` with signed headers.
+6.  **Proxying**: `TusProxyController` intercept and streams each chunk to Bunny CDN's TUS endpoint, mapping local requests to active Bunny upload sessions.
+7.  **Polling & Status**: Upon completing byte transfers, the browser polls `GET /videos/{video:slug}/status` to check progress. Once Bunny CDN completes encoding, the local database record status updates to `ready` (published).
+
+4. Reel Upload Flow
+--------------------------------------------------------------------------------
+Reel uploads on reels/create.blade.php follow a similar pipeline with customized options:
+*   **Capture / Selection**: Users can choose a file from their gallery or use the browser `MediaRecorder` API to capture video directly from their camera.
+*   **Preparation**: A request is sent to `POST /reels/prepare-upload` which processes hashtags, user mentions, and background audio configuration (audio upload or global/original library tracks).
+*   **TUS Upload**: The video file is chunked and proxied to the Bunny CDN Reels library.
+*   **Background Jobs**: If the upload fails and falls back to server-side backup, local processing or compression is queued via the `CompressReel` job.
+
+5. Controller Layer
+--------------------------------------------------------------------------------
+The core upload controllers and their functions are:
+*   **`BunnyUploadController`** (app/Http/Controllers/Web/BunnyUploadController.php)
+    *   `prepareUpload()`: Validates and initiates video records.
+    *   `checkStatus()`: Polls video encoding status.
+    *   `prepareReelUpload()`: Validates and prepares reel uploads.
+    *   `logError()`: Receives client-side upload errors for logging.
+*   **`TusProxyController`** (app/Http/Controllers/TusProxyController.php)
+    *   `create()`: Proxies initial POST requests to initiate TUS sessions.
+    *   `patch()`: Streams incoming binary chunks to Bunny CDN.
+    *   `head()`: Obtains offset information from Bunny CDN.
+    *   `options()`: Manages CORS preflight options.
+*   **`DirectUploadController`** (app/Http/Controllers/Web/DirectUploadController.php)
+    *   Directs direct server backup uploads when TUS fails.
+
+6. Middleware & Security
+--------------------------------------------------------------------------------
+Upload routes are secured and processed using several middleware layers:
+*   **`auth`**: Ensures only authenticated users can access the upload proxy and preparation routes.
+*   **CSRF Exclusion**: The routes `tus-proxy` and `tus-proxy/*` are explicitly excluded from CSRF verification in bootstrap/app.php to facilitate CORS options preflights and chunk transfers.
+*   **Sanitization Exclusion**: `XssSanitization` is disabled specifically for the proxy routes to prevent binary payload corruption.
+*   **Honeypot Bypass**: `Honeypot` is configured to skip `tus-proxy/*` requests, avoiding binary input parsing.
+*   **Traffic Source Bypass**: `CaptureTrafficSource` is bypassed on proxy routes to prevent parsing requests before byte streaming occurs.
+
+7. View / Blade Layer
+--------------------------------------------------------------------------------
+The views (videos/create.blade.php and reels/create.blade.php) control client upload logic:
+*   **AlpineJS & TUS**: Manage files, progress percentages, and upload state.
+*   **Validation**: Enforce video length and type limits before initiating connection.
+*   **Reset & Clear**: Re-setting `e.target.value = ''` ensures selecting the same file triggers a fresh upload.
+*   **Fingerprint Configuration**: Setting `fingerprint: (file, options) => Promise.resolve(null)` prevents client-side session caching.
+
+8. Routes
+--------------------------------------------------------------------------------
+| Route | Method | Controller/Handler | Purpose |
+|---|---|---|---|
+| `/videos/prepare-upload` | `POST` | `BunnyUploadController@prepareUpload` | Reserves video record and TUS endpoints. |
+| `/reels/prepare-upload` | `POST` | `BunnyUploadController@prepareReelUpload` | Reserves reel record and TUS endpoints. |
+| `/tus-proxy` | `POST` | `TusProxyController@create` | Creates proxy upload session. |
+| `/tus-proxy/{videoId}` | `PATCH` | `TusProxyController@patch` | Streams upload chunk. |
+| `/tus-proxy/{videoId}` | `HEAD` | `TusProxyController@head` | Reads current upload progress. |
+| `/videos/{video:slug}/status` | `GET` | `BunnyUploadController@checkStatus` | Checks video encoding progress. |
+| `/videos/direct-upload` | `POST` | `DirectUploadController@uploadVideo` | Fallback direct server-side video upload. |
+
+9. Bunny CDN Integration
+--------------------------------------------------------------------------------
+Bunny CDN holds reserved video objects.
+*   **GUID vs TUS Session ID**: 
+    *   **Bunny Video GUID**: Represents the permanent unique video identifier inside Bunny CDN (e.g. `e0d46c3f-8014-46ae-a53a-dceb7a53f007`).
+    *   **TUS Upload ID**: Represents the transient session string (e.g. `4b6496fa260f4c9388f789c75b3f5eef`) in the URL path where the client streams bytes.
+*   **Authentication**: The server generates SHA-256 signatures using the library ID, security key, expiration date, and video GUID.
+
+10. TUS Resumable Upload
+--------------------------------------------------------------------------------
+*   **Library**: `tus-js-client` (v4.3.1) loaded locally.
+*   **Endpoint**: Intercepted by local same-origin proxy `/tus-proxy`.
+*   **Offset**: Progress is tracked using the `Upload-Offset` and `Upload-Length` headers.
+*   **Retry Delays**: Bounded client-side delays `[0, 3000, 5000, 10000, 20000]`.
+
+11. Chunking Implementation
+--------------------------------------------------------------------------------
+*   **Mechanism**: Videos are split into 2MB chunks. Each chunk is sent as a `PATCH` request.
+*   **Why**: It guarantees that massive files are uploaded reliably over shaky connections without exhausting server memory.
+*   **Is chunking the root cause of the mobile upload issue?**
+    *   **NO**. Chunking itself is not the root cause. The application successfully processed multiple 2MB chunks over desktop and some mobile environments. The failures on mobile stem from WAF, middleware, or header exposure details rather than the concept of splitting files.
+
+12. Upload Offset & 409 Handling
+--------------------------------------------------------------------------------
+If Bunny CDN reports an `HTTP 409 Conflict` (meaning offset mismatch):
+*   If the remote offset matches the local offset, the chunk is re-sent.
+*   If the remote offset is partially complete, only the remaining bytes of the chunk are sent.
+*   If the offset exceeds the current slice, it skips the chunk (204).
+*   If the offset is behind or corrupted (e.g. returning `2`), the proxy aborts with a non-retryable `HTTP 400` to trigger the direct upload fallback.
+
+13. Queue & Background Processing
+--------------------------------------------------------------------------------
+*   **Queue Driver**: `database` configuration.
+*   **Bytes vs Background Processing**:
+    *   **Video Byte Transfer**: Handled synchronously by browser and PHP processes (direct routing).
+    *   **Background Processing**: Handles telemetry, logs, and notification broadcasting.
+*   **Is the queue connection responsible for upload failures?**
+    *   **NO**. The transfer of video bytes bypasses queue jobs completely.
+
+14. Video Processing Flow
+--------------------------------------------------------------------------------
+Once bytes reach Bunny, encoding runs asynchronously on Bunny Stream servers. The local database reflects progress until the API reports state `4` (ready), which triggers publishing notifications.
+
+15. Reel Processing Flow
+--------------------------------------------------------------------------------
+Similar to video processing except for the fallback path: if a reel fails TUS and uploads directly to the local server, a `CompressReel` background job is dispatched to compress and PUT the file to Bunny.
+
+16. Same-Video Upload Handling
+--------------------------------------------------------------------------------
+Uploading the same file repeatedly behaves as independent instances:
+- Every click on "Publish" starts a new prepare request.
+- Every prepare generates a brand new local ID, slug, Bunny GUID, and TUS session ID.
+- No files are overwritten or blocked due to sharing the same content.
+
+17. Desktop vs Mobile Upload Behavior
+--------------------------------------------------------------------------------
+*   **Desktop**: Performs reliably because connections are stable and request headers are maintained cleanly.
+*   **Mobile**: Can fail due to network drops (manifesting as `ProgressEvent` browser aborts), WAF/ModSecurity blocks on binary POST payloads, or CORS restrictions where headers are hidden.
+
+18. Implemented Reliability Improvements
+--------------------------------------------------------------------------------
+The codebase contains the following changes:
+*   **CSRF/Honeypot Bypass**: Prevents input middleware from corrupting binary bodies.
+*   **Expose CORS Headers**: Added `Access-Control-Expose-Headers` directly in `TusProxyController@proxyResponse` to allow browsers to read `Upload-Offset`.
+*   **Disabled Resumption Fingerprints**: Configuring `fingerprint: null` prevents local storage caching conflicts.
+*   **Dynamic Origins**: Options routing returns request origins dynamically rather than wildcard `*`.
+
+19. Fallback Upload
+--------------------------------------------------------------------------------
+If TUS fails, the client uses `DirectUploadController` to upload the video directly to the application server using standard multipart forms.
+
+20. Performance
+--------------------------------------------------------------------------------
+*   **Upload**: 2MB chunks maintain low server memory overhead.
+*   **Processing**: Fully offloaded to Bunny CDN edge nodes.
+
+21. Scalability
+--------------------------------------------------------------------------------
+*   **Proxy Cost**: Bytes pass through Laravel, meaning double the traffic load (ingress + egress).
+*   **Bottleneck**: At large concurrency levels (e.g. 100+ concurrent uploads), proxy execution could exceed maximum execution limits or exhaust bandwidth.
+
+22. Current Known Issue
+--------------------------------------------------------------------------------
+Some mobile clients still report `tus: failed to upload chunk caused by [object ProgressEvent]`. This occurs when the connection is terminated by the browser before or during `PATCH` execution.
+
+23. Root-Cause Assessment
+--------------------------------------------------------------------------------
+*   **Confirmed Causes**: CORS restriction hiding headers, and middleware input parsing consuming requests.
+*   **Unconfirmed Hypotheses**: ModSecurity WAF blocking binary chunks, or mobile connection timeouts.
+
+24. Recommendations
+--------------------------------------------------------------------------------
+*   **Immediate**: Upload the latest built assets and updated `TusProxyController` to cPanel.
+*   **Short-term**: Test in private/incognito modes to bypass browser storage cache.
+*   **Future Scalability**: If scale increases to thousands of uploads, transition to direct client-to-Bunny uploads with a signing endpoint.
+
+25. Final Conclusion
+--------------------------------------------------------------------------------
+The BINTEO upload system is built on a sound architecture utilizing TUS chunking. Recent updates solve CSRF, input corruption, and CORS issues. By ensuring built assets are synced and caches cleared, reliability issues are minimized.

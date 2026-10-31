@@ -1,0 +1,947 @@
+================================================================================
+ADMIN_DOCUMENTATION - HOW EACH PAGE ACTUALLY WORKS
+Project   : new-youtube (Binteo, YouTube-style platform)
+Framework : Laravel 13 + Blade + Tailwind + Alpine.js + Chart.js + DataTables
+File refs : file:line numbers point to the REAL code behind each screen.
+
+CORE ARCHITECTURE PATTERNS (read this first - reused everywhere)
+-----------------------------------------------------------------
+1) CONTROLLER -> SERVICE -> MODEL:
+   Every admin controller is thin. It resolves a service in its constructor
+   (e.g. VideoController injects VideoService, DepositController injects
+   GatewayService) and the service does ALL the real work. Views are rendered
+   with compact('pageTitle', ...) - 'pageTitle' is shown in the page heading.
+
+2) ROUTE FILES:
+   - routes/web.php lines 278-511  -> modern admin group, middleware 'admin'
+   - routes/web.php lines 514-524  -> admin auth routes, middleware 'guest:admin'
+   - routes/admin-legacy.php       -> merged inside the admin group (web.php:506-508)
+   Some old ad routes (advertiser.*, advertisement.*, advance.ads.*, campaign.*)
+   are COMMENTED OUT in admin-legacy.php (lines 233-321).
+
+3) MIDDLEWARE 'admin'  -> App\Http\Middleware\AdminMiddleware:
+   checks auth()->guard('admin')->check(). If not logged in it stores
+   session['url.intended'] and redirects to admin.login (so you return to the
+   page you wanted after login). The 'guest:admin' middleware is the reverse
+   for the login/register/forgot pages.
+
+4) FLASH MESSAGES: every action ends with
+       $notify[] = ['success', '...'];  return back()->withNotify($notify);
+   'withNotify' is a custom macro that stores ['status'=>type,'message'=>text]
+   in the session and the layout renders the toast.
+
+5) HELPERS you will see everywhere:
+   - gs('key') / gs()       -> cached GeneralSetting row values
+   - notify($user, 'TEMPLATE_KEY', [...]) -> email/SMS/push notification dispatch
+   - showAmount(), getAmount(), getTrx(), getPaginate(), fileUploader(),
+     getFilePath(), getFileSize(), RequiredConfig::configured('...'), Status::* constants
+
+6) USERS & ADMINS ARE SEPARATE MODELS:
+   - Frontend users -> App\Models\User (flag columns: status active/ban, ev
+     email verified, sv mobile verified, kv kyc, creator_status,
+     monetization_status, advertiser_status; balance; views etc).
+   - Admins -> App\Models\Admin. The 'admin' guard in config/auth.php uses
+     provider 'admins' => Admin::class (session driver), independent from the
+     'web' guard (User::class). That's why AdminAuthService can simultaneously
+     log out the 'web' guard on admin login.
+   - QUIRK: the (usually disabled) admin register form creates a User row with
+     role='admin' and logs it in through guard('admin'), and the forgot-password
+     flow (AdminAuthService.php:53) checks User->role === 'admin'; but the admin
+     guard itself resolves the App\Models\Admin provider.
+
+7) FILE STORAGE:
+   - Avatars/thumbnails/KYC images -> R2 (Cloudflare) via ImageHelper::uploadToR2
+   - Video/reel source files       -> uploaded locally first, then pushed to
+     Bunny Stream CDN and transcoded to HLS by Bunny.
+   - sitemap.xml/robots.txt/custom.css -> written straight to the public/root.
+   - lang/*.json translation files   -> read/written directly on disk.
+
+================================================================================
+PHASE 1 - AUTHENTICATION & ACCOUNT (admin login, profile, notifications)
+================================================================================
+
+[admin/auth/login.blade.php]
+- Route: GET  /admin/login   admin.login  (web.php:515)
+         POST /admin/login   throttle:5,1 (web.php:516)
+  Controller: Admin\AuthController.
+- Controller flow: showLoginForm() (AuthController.php:20) just returns the view.
+  login() (AuthController.php:26) validates [email|required|email, password]
+  then calls AdminAuthService->login().
+- How login works (AdminAuthService.php:16-34):
+  1) Auth::guard('admin')->attempt($request->only('email','password'),
+     remember). The 'admin' guard uses the session driver + Admin model
+     provider (see architecture note 6), fully separate from the frontend
+     'web' guard.
+  2) If the frontend 'web' guard is also logged in, it is logged out FIRST so
+     the two sessions never mix.
+  3) $request->session()->regenerate() (prevents session fixation).
+  4) Redirect = redirect()->intended(route('admin.dashboard')) - if the stored
+     intended URL is NOT an /admin URL it falls back to the dashboard.
+- Failure: returns back()->withErrors(['email' => 'auth.failed']).
+- Brute force: protected by throttle:5,1 = 5 attempts per minute.
+
+[admin/auth/register.blade.php]
+- Route: GET/POST /admin/register (web.php:517-518), guest:admin + throttle.
+- register() (AuthController.php:49) validates name/email|unique:users/
+  password confirmed then AdminAuthService->register() (AdminAuthService.php:36):
+  creates a User row with role='admin' (NOT an Admin record - see note 6),
+  bcrypt password, fires the Laravel Registered event, and immediately logs in
+  via the admin guard. Redirects to admin.dashboard. (Usually disabled.)
+
+[admin/auth/forgot-password.blade.php]
+- Route: GET  /admin/forgot-password admin.password.request (web.php:520)
+         POST /admin/forgot-password admin.password.email throttle (web.php:521)
+- sendResetLink() (AuthController.php:67) -> AdminAuthService->sendResetLink()
+  (AdminAuthService.php:51): finds the user by email, VERIFIES role === 'admin'
+  (normal users cannot reset through this page), then uses Laravel's
+  Password::sendResetLink(['email'=>$email]) broker which emails the reset token.
+
+[admin/auth/reset-password.blade.php]
+- Route: GET  /admin/reset-password/{token} admin.password.reset (web.php:522)
+         POST /admin/reset-password      admin.password.store throttle (web.php:523)
+- The form collects email + token + new password (confirmed). resetPassword()
+  (AuthController.php:85) -> AdminAuthService->resetPassword()
+  (AdminAuthService.php:66) uses Password::reset() which validates the token
+  belongs to the email, then the closure force-fills the hashed password,
+  refreshes remember_token and fires PasswordReset. Redirects to admin.login.
+- The token flows through the standard password_resets DB table.
+
+[admin/profile.blade.php]
+- Routes (admin-legacy.php:11-12): GET /admin/profile admin.profile,
+  POST /admin/profile admin.profile.update.
+- profile() (AdminController.php:40) -> AdminDashboardService->getAdminProfile()
+  = auth()->guard('admin')->user(). Renders name/email/avatar.
+- profileUpdate() (AdminController.php:46) validates name, email, image
+  (new FileTypeValidate jpg/jpeg/png). If an image is uploaded it is stored
+  with fileUploader($request->image, getFilePath('adminProfile'),
+  getFileSize('adminProfile'), $old) which replaces the old file and returns the
+  new relative path. Then updateAdminProfile() (AdminDashboardService.php:173)
+  saves name+email. Redirect -> admin.profile with success toast.
+
+[admin/password.blade.php]
+- Routes (admin-legacy.php:13-14): GET/POST /admin/password admin.password.
+- password() renders the form; passwordUpdate() (AdminController.php:76)
+  validates old_password + password|min:5|confirmed, then
+  updateAdminPassword() (AdminDashboardService.php:181):
+     if !Hash::check(old_password, user->password) return false  -> error toast
+     else Hash::make(new) + save -> success toast.
+
+[admin/notifications.blade.php]
+- Routes (admin-legacy.php:17-21): the bell icon opens this page.
+  notifications (list), notification.read/{id}, notifications.read-all,
+  notifications.delete-all, notifications.delete-single.
+- notifications() (AdminController.php:93) -> getNotifications()
+  (AdminDashboardService.php:195): returns paginated AdminNotification rows
+  eager-loaded with user, plus hasUnread and hasNotification booleans.
+- Marking one read (AdminDashboardService.php:204) sets is_read = YES and
+  returns the notification's click_url so the admin is redirected to the
+  related record (#' = stay). markAll/deleteAll truncate or bulk-update.
+
+================================================================================
+PHASE 2 - APPLICATION SHELL (layouts, partials, reusable components)
+================================================================================
+
+[admin/layouts/app.blade.php]
+- The master Blade @extends used by every modern admin page.
+- Includes: head (fonts/CSS/Chart.js/DataTables), sidebar partial
+  (admin.partials.sidenav), topbar (admin.partials.topnav), the breadcrumb
+  partial, an @yield('content') slot, the admin.partials.cron_modal, and the
+  JS stack. It renders any session 'notify' toast (the withNotify macro).
+- It is plain Blade - each index page fills in the DataTables config + toolbar.
+
+[admin/layouts/master.blade.php]
+- Bare layout (head + centered content) used by auth & standalone pages.
+
+[admin/partials/breadcrumb.blade.php]
+- Renders the H1 page title ($pageTitle) + subtitle. Included by page headers.
+
+[admin/partials/cron_modal.blade.php]
+- A modal that shows the recommended crontab lines for the platform
+  (queue:work, schedule:run, cron index URL). Opened from the dashboard when
+  the cron endpoint hasn't reported a recent run.
+
+[admin/partials/navbar.blade.php / sidenav.blade.php / topnav.blade.php]
+- navbar: secondary strip with back-to-list links (used on create/edit pages).
+- sidenav: the left menu. Groups map to the route names listed in this doc;
+  active links highlighted by request()->routeIs(); permission-filtered.
+- topnav: hamburger toggle, search, language switcher and the notification
+  bell with an unread-count badge wired to admin.notifications.
+
+[admin/components/header-toolbar.blade.php]
+- Reusable list-page header: left = title + subtitle slot, right = action
+  buttons slot (usually "Add/Deploy new" linking to create routes).
+- Used on users, videos, banners, campaigns etc.
+
+[admin/components/table-toolbar.blade.php]
+- The toolbar above DataTables: search input + filter dropdowns + action
+  buttons. Wires the search/filter values into the server-side table request
+  and often exposes a "bulk actions" select whose value is posted together with
+  the checked row ids to the module's bulk() controller method.
+
+================================================================================
+PHASE 3 - DASHBOARD
+================================================================================
+
+[admin/dashboard.blade.php]
+- Route: GET /admin  admin.dashboard  (web.php:280). Also a legacy duplicate
+  /admin/dashboard (admin-legacy.php:10).
+  Controller: DashboardController@index (DashboardController.php:19).
+- Data loaded from AdminDashboardService:
+  - getDashboardWidgets() (AdminDashboardService.php:25): user counts
+    (total, active, email/mobile-unverified, kyc pending, online in last 5 min),
+    video counts (total, today, free/stock/regular, reels = shorts + reels,
+    public/private/draft), total watch time (video total_watch_time or sum of
+    WatchHistory.progress_seconds), estimated revenue (sum VideoEarning).
+  - getDashboardCharts() (line 54): last 30 days of UserLogin grouped by
+    browser / OS / country (top 5 countries).
+  - getDepositStats() (65): successful amount sum, pending/rejected counts,
+    successful charge sum. getWithdrawalStats() (75) same for withdrawals.
+  - getRecentUploads() (85): 5 latest videos with user.
+- Charts: the two area charts hit AJAX endpoints:
+  - admin.chart.deposit.withdraw (web.php:287) -> getDepositWithdrawReport()
+    (90): date-range aware; if >30 days groups by MONTH otherwise by DAY using
+    DATE_FORMAT(created_at, '%M-%Y' / '%d-%M-%Y'); builds a full date array
+    (getAllDates/getAllMonths) and maps successful Deposit amounts vs approved
+    Withdrawal amounts so the chart never has gaps. Returns JSON
+    {created_on:[], data:[{name:'Payments'},{name:'Withdrawn'}]} for Chart.js.
+  - admin.chart.transaction (web.php:288) -> getTransactionReport() (129):
+    same pattern but sums Transaction rows by trx_type '+' (credits) and
+    '-' (debits).
+- admin.check.space (web.php:289) -> checkStorageSpace() (228) returns JSON
+  {status: bool} = is there a storage bucket whose available_space <= 0.
+- admin.profile.firebase_token (web.php:282) -> updateFirebaseToken() (237):
+  updateOrCreate on FirebaseToken keyed by token, storing admin_id + device,
+  used for push notifications to the admin app.
+- admin.setting.check.ffmpeg (web.php:290) -> checks the server has FFmpeg for
+  local transcoding; admin.logout route (web.php:291) logs out the admin guard.
+
+================================================================================
+PHASE 4 - ANALYTICS MODULE
+================================================================================
+
+[admin/analytics/index.blade.php]
+- Route: GET /admin/analytics  admin.analytics.index  (web.php:371)
+  Controller: AnalyticsController@index. Landing page linking the sub-tabs.
+
+[admin/analytics/dashboard.blade.php]
+- Legacy route /admin/analytics/dashboard (admin-legacy.php:190).
+  AnalyticsController@dashboard.
+
+[admin/analytics/audience|content|creators|monetization|retention|technical]
+- Legacy routes admin-legacy.php:191-195 -> AnalyticsController methods
+  (audience, content, creators, monetization, retention, technical).
+- NOTE: the NEWER "advanced analytics" pages are implemented by GrowthController
+  (see Phase 5) and render these SAME blade files:
+  - /admin/analytics/revenue (web.php:299/397) -> GrowthController@revenueReports
+    -> ContentService->getRevenueReports() -> view admin.analytics.revenue
+  - /admin/analytics/videos (web.php:300/398) -> GrowthController@videoPerformance
+    -> getVideoAnalytics() -> topVideos + underperforming -> admin.analytics.videos
+  - /admin/analytics/audience (web.php:301/399) -> GrowthController@audienceAnalytics
+    -> getAudienceAnalytics() -> devices + countries -> admin.analytics.audience
+- The telemetry view: GET /admin/telemetry (web.php:281) -> AnalyticsController
+  @telemetry (uses the telemetry pings at web.php:655-658 from the frontend).
+
+[admin/analytics/partials/online_users.blade.php]
+- Renders the "online now" list inside dashboard/analytics pages using the
+  User::where('last_seen', >= now()->subMinutes(5)) count from
+  getDashboardWidgets() (AdminDashboardService.php:32).
+
+================================================================================
+PHASE 5 - GROWTH
+================================================================================
+
+[admin/growth/index.blade.php]
+- Route: GET /admin/growth  admin.growth.index  (web.php:394)
+  Controller: GrowthController@index (GrowthController.php:17) calls
+  ContentService->getGrowthDashboard() and extract()'s the returned keys:
+  registrations, visitors, totalUsers, totalVisitors, newUsers (last N days),
+  newVisitors, conversionRate (registrations/visitors), liveUsersCount.
+- The page renders these as KPI tiles and funnel/series charts, comparing
+  sign-ups vs site visitors over time to measure acquisition health.
+
+================================================================================
+PHASE 6 - VIDEO MANAGEMENT
+================================================================================
+
+[admin/videos/index.blade.php]
+- Routes: /admin/videos admin.videos.index (web.php:310) +
+  filtered variants sharing the SAME view:
+    videos.draft (312), videos.featured (313), videos.premium (314),
+    videos.liked (315), videos.trending (316), videos.public (317),
+    videos.private (318).
+- Controller: VideoController (VideoController.php). Each variant is a scope on
+  Video (draft()/trending()/public()/private() i.e. the model scopes) and eager
+  loads ['user','likes','allComments','playlists'], orderBy id desc, paginate 10.
+- UI: DataTables-style table with cover thumb, title, channel/user, views,
+  likes, status, date. The header-toolbar/table-toolbar components supply the
+  search + bulk select. Row actions hit:
+    POST /videos/bulk            admin.videos.bulk (311)
+    POST /videos/{id}/toggle-trending    (319)
+    POST /videos/{id}/toggle-featured    (328)
+    POST /videos/{id}/toggle-age-restricted (329)
+    POST /videos/{id}/approve | /reject  (325-326)
+    DELETE /videos/{id}                  (327)
+- approve() (VideoController.php:330) sets moderation_status='approved'.
+  reject() (339) sets 'rejected'. toggleTrending (65) flips is_trending.
+- bulk() (384): validates action + ids; loops every video and switches on
+  action: delete (also deletes Bunny video), featured/unfeatured, trending/
+  untrending, approve/reject. Single DB save per video, one toast at the end.
+- destroy() (348): if isBunnyVideo() it calls BunnyStreamService->deleteVideo()
+  (removes the CDN asset) then $video->delete().
+
+[admin/videos/create.blade.php]
+- Route: GET /admin/videos/create (320) -> create() (135) loads
+  Category::active()->get() + User::active()->has('channel') for assignment.
+  POST /admin/videos/store (321) -> store() (143).
+- store() validation (145-161): user exists, title, category exists, video file
+  (mp4/mov/avi/wmv max ~1GB), thumb image, visibility in:0,1, pricing_tier
+  free/premium/exclusive, price, captions (vtt/srt) optional.
+- Save logic (163-212):
+  - slug = Str::slug(title) . '-' . Str::random(5)
+  - visibility '0' => 'public' else 'private'
+  - pricing_tier mapped 0/1/2; is_premium set for premium/exclusive; price 0
+    unless premium/exclusive.
+  - Optional scheduled_at parsed in Asia/Kolkata then converted to app tz.
+  - is_age_restricted from checkbox presence.
+  - Files: video_path/thumbnail_path/captions_path via fileUploader()
+  - attach() the single category; each tag -> new VideoTag row.
+- Bunny pipeline (214-240): app(BunnyStreamService)->useVideoLibrary()
+  ->createVideo(title) gives a guid; then it uploads the local file bytes to
+  https://video.bunnycdn.com/library/{lib}/videos/{guid} with the AccessKey
+  header (timeout 3600s). On success video->update(bunny_id, bunny_status='processing').
+- Finally dispatches App\Jobs\ProcessVideo::dispatch($video) (242) which
+  processes/registers the video (thumbnail extract, transcript etc.).
+
+[admin/videos/edit.blade.php]
+- GET /admin/videos/{video:id}/edit (323) -> edit() (250). Preloads
+  categories + tags. POST update (324) -> update() (259):
+  - re-applies pricing tier/visibility/age-restriction/schedule
+  - thumbnail/captions re-upload with old-path replacement (fileUploader old:)
+  - categories()->sync([$category]) and tags()->delete() then re-insert
+  - if it's a Bunny video, calls Bunny updateVideo() to rename the CDN asset.
+  Returns back() (stays on edit page) with success toast.
+
+[admin/videos/show.blade.php]
+- GET /admin/videos/{video:id}/show (322) -> show() (89).
+  Loads user/likes/comments.user/playlists/categories. Pulls active BannerAd
+  rows for slot1 and slot2 within now() (used to show which banner ads may be
+  placed on this video's pages). Builds:
+  - creatorVideos: same owner's other videos (limit 6)
+  - relatedVideos: videos sharing a category (whereHas categories), limit 6
+  - userStats: total_videos, total_likes (across the user's videos),
+    total_views (sum views_count), subscribers.
+  Renders admin.videos.view with embedded player + moderation buttons.
+
+[admin/videos/analytics.blade.php]
+- Legacy video analytics GET /admin/videos/analytics/{id?} (admin-legacy.php:164)
+  + filter-data AJAX (165) -> ManageVideoController@analytics/filterData.
+
+[admin/videos/not_interested.blade.php]
+- Routes (web.php:330-331): /admin/not-interested
+  NotInterestedController@index (log of users who marked "not interested") and
+  /not-interested/destroy/{id} to remove an entry.
+
+[admin/videos/interactions/comments|likes|playlists|watch_later]
+- Route group (web.php:334-341) named videos.:
+  - /videos/{video}/manage-likes           -> VideoInteractionController@likes
+  - DELETE /videos/likes/{id}/remove       -> destroyLike
+  - /videos/{video}/manage-comments        -> comments
+  - /videos/{video}/manage-playlists       -> playlists
+  - POST /videos/{video}/playlist/remove   -> removeFromPlaylist
+  - /videos/{video}/manage-watch-later     -> watchLater
+- Each page lists the interaction for one video (comment threads, like authors,
+  playlists containing it with a remove action, watch-later saves) so an admin
+  can audit a specific video's engagement.
+
+================================================================================
+PHASE 7 - REELS & SAVED AUDIOS
+================================================================================
+
+[admin/reels/index.blade.php]
+- Routes (web.php:475-500). ManageReelController:
+  /admin/reels (index, 477) + filtered variants sharing the view:
+    published (479), draft (480), rejected (481), trending (482), liked (483),
+    duets (484). Actions: bulk (478), approve (489), reject (490),
+    destroy (491), delete-thumbnail (492), toggle-trending (493).
+- Approve/reject flip Reel moderation_status via ReelService->approveReel /
+  rejectReel (ManageReelController.php:236/245); bulk loops ids like Video.bulk.
+
+[admin/reels/create.blade.php]
+- GET /admin/reels/create (485) -> create(); POST /admin/reels/store (486) ->
+  store() with file upload; reels are compressed via the CompressReel queued
+  job (ReelService) and pushed to the Bunny reel library using the
+  bunny_reel_library_id/collection settings from general settings.
+
+[admin/reels/edit.blade.php]
+- GET /admin/reels/{id}/edit (487) -> edit(); POST /{id}/update (488) ->
+  update(); covers description/cover/status updates.
+
+[admin/reels/saved_audios.blade.php]
+- /admin/reels/saved-audios (496-499) -> ManageSavedAudioController: lists
+  audio tracks used by reels; DELETE /{id} removes one.
+
+================================================================================
+PHASE 8 - CATEGORIES, CHANNELS, PLAYLISTS & PROCESSING
+================================================================================
+
+[admin/category/create|edit|index]
+- Routes (admin-legacy.php:91-99) CategoryController:
+  index (categories.index), create, edit/{id}, save/{id?} (POST both create+edit),
+  status/{id}, delete/{id}, check-slug (AJAX slug uniqueness via checkSlug).
+- save() validates name/slug/thumb etc; slug checked against uniqueness.
+- Index shows category rows with video counts + ordering + toggle + delete.
+
+[admin/channels/index.blade.php]
+- Route: GET /admin/channels admin.channels.index (web.php:344) ->
+  ChannelController@index (list with bulk actions, verified/featured/trending
+  toggles via POST channels.bulk / channels.status). Legacy variants
+  (admin-legacy.php:174-183): featured, trending + toggle-featured/toggle-trending.
+- store/create (web.php:346-347): builds a Channel row. update (350) edits
+  profile (banner/avatar uploaded via R2 in ChannelService). show (348) renders
+  channel preview with subscriber count + videos.
+
+[admin/playlist/create|edit|index|show]
+- Routes (admin-legacy.php:209-222) ManagePlaylistController:
+  playlist.index (all), create/store, edit/update, show/{id}, destroy,
+  videos-list/{id} (AJAX to fetch videos for playlist builder),
+  user-videos/{userId} (AJAX videos of a user for the picker).
+- Text/metadata + ordered video add/remove; visibility public/private.
+
+[admin/processing/create|edit|index|show]
+- Routes (web.php:426-432) VideoProcessingController:
+  - index (427): renders BOTH the resolution OPTIONS table
+    (VideoProcessingOption::all()) and the JOB queue
+    (VideoProcessingJob::with('video')->latest()->paginate(10)).
+  - create (428): "Configure New Resolution" form (adds a VideoProcessingOption).
+  - edit (429) + toggle (430): modify / enable-disable a resolution option via
+    VideoService->toggleProcessingOption.
+  - show (431): "Job Intelligence" -> single VideoProcessingJob with video.
+  - retry (431) -> VideoService->retryProcessingJob re-dispatches the job.
+  - destroy-job (432) cancels/removes a job.
+
+================================================================================
+PHASE 9 - COMMENTS & COMMENT REPORTS
+================================================================================
+
+[admin/comments/index.blade.php]
+- Route: GET /admin/comments admin.comments.index (web.php:355).
+  CommentController@index -> CommentService->getAllComments(20): mixes
+  VideoComment + ReelComment rows; each row shows VIDEO/REEL badge, author,
+  body, likes, timestamps, moderation actions (hide/publish/delete/block author).
+- create/store (356-357): admin posts a comment; form validates user + type
+  (video/reel) + target id; CommentService->createComment.
+- show (358) with ?type=video|reel -> getComment($type, $id).
+- edit/update (359-360) and destroy (361, by type).
+
+[admin/comment_reports/index.blade.php]
+- Routes (web.php:412-416) CommentReportController:
+  GET /admin/comment-reports (index) - dashboard of reported comments with
+  tabs (blocked users / reels / videos), POST /{id}/destroy (dismiss the
+  report), POST /{id}/delete-comment (delete the offending comment).
+
+================================================================================
+PHASE 10 - TECHNICAL CONFIG: RESOLUTIONS & COMMISSIONS
+================================================================================
+
+[admin/video_resolution/index.blade.php]
+- Routes (admin-legacy.php:131-139) VideoResolutionController: index, save/{id?},
+  status/{id}, delete/{id}. Defines quality profiles (360p/720p/1080p/4K with
+  bitrates) that the transcoding pipeline honours.
+
+[admin/video_commissions/index.blade.php]
+- Route: GET /admin/video-commissions (web.php:309)
+  VideoCommissionController@index: table of commission percentages applied to
+  monetized video earnings between platform and creator.
+
+================================================================================
+PHASE 11 - MONETIZATION & SUBSCRIPTION PLANS
+================================================================================
+
+[admin/monetization/index.blade.php]
+- Routes (web.php:435-440) MonetizationController:
+  - index (435) loads from ContentService: getMonetizationAds(),
+    getMonetizationSettings(), getTotalEarnings(), getVideoEarnings($request)
+    (earnings filterable by date range) -> "Monetization Control Center".
+  - toggle-global POST (436) flips the global monetization on/off flag.
+  - update-settings POST (437): platform commission %, payout thresholds etc
+    through updateMonetizationSettings.
+  - ads.store POST (438): creates an Ad (pre-roll/mid-roll/banner) with
+    cpc/cpm + click_url. ads.toggle (439) + ads.destroy (440).
+
+[admin/plans/create|edit|index] (content subscription plans)
+- Routes (web.php:443-449) PlanController: index (list w/ toggle-status),
+  create/store, edit/update, destroy. Plans define channel subscriptions
+  (price, duration). Legacy ManagePlanController (admin-legacy.php:225-231)
+  also has plan.all, plan.videos-list, plan.playlist-list (which videos/
+  playlists are included in a plan) and plan.status.
+
+[admin/userplan/create|edit|index] (marketplace talent plans)
+- Routes (admin-legacy.php:106-127) UserPlanController over UserPlan model.
+  UserService->createUserPlan forces defaults for is_featured_plan and
+  contact_access. These are the marketplace listing tiers (featured placement +
+  contact access) not content subscriptions.
+
+[admin/ott_plans/create|edit|index|subscriptions]
+- Routes (web.php:452-461) OttPlanController: index, create/store, edit/update,
+  status, delete + subscriptions (list of OttSubscription purchases: user,
+  plan, start/expiry, status) for OTT/TV bundles.
+
+================================================================================
+PHASE 12 - DEPOSITS, WITHDRAWALS & GATEWAYS (money flows)
+================================================================================
+
+[admin/deposit/log.blade.php]
+- Routes (admin-legacy.php:368-378) DepositController: all/list (deposit),
+  pending, rejected, approved, successful, initiated, details/{id},
+  approve/{id}, reject (POST), destroy.
+- deposit() (DepositController.php:50) passes $summary=true so the page gets 4
+  stat cards (successful/pending/rejected/initiated = SUM(amount) by status).
+- GatewayService->getDeposits() (GatewayService.php:210): scopes by the model
+  scope named after the tab ($scope ? Deposit::$scope()), eager loads user +
+  gateway, applies searchable(['trx','user:username']) + dateFilter() (request
+  helpers), and a method/gateway filter reading ?method=.
+
+[admin/deposit/detail.blade.php]
+- details/{id} (DepositController.php:66): shows user, amount, charge, payable
+  (final_amount*rate), TRX, gateway, and the raw gateway JSON returned by the
+  provider (deposit->detail encoded). Approve POSTs to approve/{id} ->
+  approveDeposit() (GatewayService.php:255):
+    Deposit where id + status pending -> PaymentController::userDataUpdate($deposit, true)
+    which credits the user's balance, flips status to successful and creates a
+    Transaction row (remark = deposit) - this is the SAME code path the payment
+    gateway webhook calls.
+- Reject (POST deposit.reject) requires an admin message; rejectDeposit()
+  (261) marks the deposit rejected + stores admin_feedback, and if the deposit
+  belongs to an advertisement pauses the ad (status PAUSE) OR if linked to a
+  campaign marks that campaign rejected + payment_status rejected. Then
+  notify() fires 'DEPOSIT_REJECT' to the user (email/SMS/push template).
+
+[admin/deposit/widget.blade.php]
+- The 4 stat cards partial (successful/pending/initiated/rejected amounts)
+  rendered on the log page.
+
+[admin/deposit/gateway_data.blade.php]
+- Recursive partial used on detail to pretty-print the deposit->detail JSON
+  (provider txn id, checksum, etc.) as label/value rows.
+
+[admin/withdraw/withdrawals.blade.php + index/detail/create/create_manual/edit]
+- Routes (admin-legacy.php:384-412). WithdrawalController tabs:
+  pending / approved / rejected / all (all() passes summary -> 3 cards) each
+  render admin.withdraw.withdrawals. create + store build a MANUAL payout for a
+  chosen user:
+    createManualWithdrawal() (GatewayService.php:321):
+    - users balance check -> throw RuntimeException('insufficient balance') if short
+    - charge = fixed_charge + amount*percent_charge/100
+    - final_amount = (amount - charge) * method->rate
+    - trx = getTrx(); status = PAYMENT_SUCCESS (manually given!)
+    - debits user->balance, creates the '-' Transaction.
+- details/{id} (WithdrawalController.php:88): renders withdraw_information JSON
+  (the form the user filled like account no/UPI) via admin.withdraw.detail.
+- approve POST (marks successful, debits balance, Transaction '-', notifies
+  'WITHDRAW_APPROVE' with method/amount/trx) or reject ('WITHDRAW_REJECT').
+  approveWithdrawal() (GatewayService.php:369) re-checks balance == sufficient.
+- WithdrawMethodController (methods tab): create/store/edit/update of payout
+  methods; update() validates schedule_type in daily/weekly/monthly + schedule,
+  rate, fixed/percent charge and min>fixed charge, max>min (GatewayService
+  validate* methods); stores the method + its Form template via FormProcessor.
+
+[admin/gateways/automatic/list|edit]
+- Routes (admin-legacy.php:338-347) AutomaticGatewayController.
+  index lists Gateway::automatic() filtered to allowed aliases ONLY
+  ['StripeV3','Razorpay','PaypalSdk'] (GatewayService.php:30) eager loaded
+  with currencies. edit/{alias} loads gateway + currencies + the gateway param
+  template. update/{code}:
+    updateAutomaticGateway() (GatewayService.php:46) validates global params
+    and per-currency rules (validateAutomaticGatewayCurrency), writes the
+    gateway_parameters JSON, optionally uploads a new image, DELETES all
+    existing GatewayCurrency rows and rebuilds them (per-currency name/
+    currency/min/max/fixed/percent/rate + param values), then
+    RequiredConfig::configured('deposit_method'). status toggles the gateway.
+
+[admin/gateways/manual/create|edit|list]
+- Routes (admin-legacy.php:350-360) ManualGatewayController.
+  createManualGateway() (GatewayService.php:119): builds a dynamic Form via
+  FormProcessor->generate('manual_deposit') (the "fields the user must fill" -
+  account number, txn ref, etc.), code = last manual code + 1 (or 1000), alias
+  slugified, supported_currencies empty, and creates ONE GatewayCurrency with
+  min/max/fixed/percent/rate. Status toggle; edit/update rebuild the form.
+
+================================================================================
+PHASE 13 - ADVERTISING: BANNERS
+================================================================================
+
+[admin/banners/index.blade.php]
+- Routes (web.php:464-472) BannerAdController, named banners.:
+  GET /admin/banner-ads/{slot} (index), /{slot}/create, /{slot}/store,
+  /{slot}/edit/{id}, /{slot}/update/{id}, /status/{id}, DELETE /destroy/{id}.
+- Valid slots = slot1, slot2, slot3, slot4 (BannerAdController.php:14); any
+  other slot is 404. index() lists BannerAd rows for that slot; create/store
+  validate banner_imgs[] (array, image max 5MB), link, start_date, end_date
+  (end after start) -> MarketingService->createBanner stores N banners and
+  returns the deployed count. Status toggle + destroy (deletes from archives).
+
+NOTE: The old ad stack ships as VIEWS ONLY. routes/admin-legacy.php:233-321
+  contain advertise/advertiser/advance-ads/campaign route groups but they are
+  COMMENTED OUT, so admin/campaign/*, admin/campaigns/*, advertisements and
+  advertiser pages are not currently reachable through any live route. The
+  banner-ads system above is the active advertising path.
+
+================================================================================
+PHASE 14 - USERS & KYC
+================================================================================
+
+[admin/users/index.blade.php]
+- Legacy routes (admin-legacy.php:35-88) ManageUsersController + modern
+  UserController (web.php:294-296).
+  Tabs (each a User model scope via UserService->userQuery):
+    all, regular, creators, active, banned, email-verified, email-unverified,
+    mobile-verified, mobile-unverified, kyc-unverified, kyc-pending,
+    with-balance, monetization-request, policy-violators (violators view).
+- userQuery() (UserService.php:34): $scope ? User::$scope() : User::query()
+  then ->searchable(['username','email'])->filter(['status'])->sortFilter('id','desc').
+  paginate(getPaginate()).
+- AllUsers additionally passes $plans for the "assign plan" dropdown in actions.
+- Actions (via buttons on rows or bulk select):
+  - POST status/{id} admin.users.status -> status() (ManageUsersController
+    :612): if active, BAN requires a reason stored in ban_reason
+    (UserService->toggleUserStatus: status=USER_BAN + ban_reason), else unban.
+  - POST bulk -> bulkAction() (UserService.php:147) switch: block, unblock,
+    approve (ev+sv verified), unapprove, delete.
+  - POST add-sub-balance/{id} -> adjustBalance() (UserService.php:444): type
+    1 add (increments balance + '+' Transaction remark admin_add_balance,
+    notify BAL_ADD) / 2 subtract (checks sufficiency, '-' Transaction, notify
+    BAL_SUB). Every change is a Transaction row = auditable ledger.
+  - POST add-plan/{id} -> addPlan() (ManageUsersController.php:822): grants
+    either an OttSubscription (user+plan+start/end from plan duration) or a
+    PurchasedPlan (owner_id, price, trx, expired_date).
+
+[admin/users/detail.blade.php]
+- detail/{id} (ManageUsersController.php:137) -> getUserDetail()
+  (UserService.php:168): loadCount subscribers/videos/reels/playlists/comments/
+  tickets/userNotifications/likedVideos/watchHistories + load channel; returns
+  totalDeposit/totalWithdrawals/totalTransaction, a widget array of ~15 video
+  scoped counts, userPlans (purchasedPlans with plan), ottPlans (ottSubscriptions
+  with ottPlan), last 50 transactions, latest kycSubmission, and the country
+  JSON list for address editing. Renders "Profile Intelligence" page.
+
+[admin/users/edit.blade.php / create.blade.php]
+- create (add + store, admin-legacy.php:70-71) / edit + update (72-73).
+  store() validates firstname/lastname/email(unique)/username(unique)/mobile/
+  country(from JSON)/password + optional channel_name + image/channel_avatar/
+  channel_banner. createUser() (UserService.php:40) builds the User, bcrypt +
+  stores an ENCRYPTED password_text, uploads avatar to R2 via
+  ImageHelper::uploadToR2, flags ev/sv/kv/creator/monetization/advertiser, and
+  if channel data present calls createUserChannel(). update() mirrors it and
+  also updates channel avatar/banner/description.
+
+[admin/users/dummy.blade.php]
+- Dummy-user generator (route users.dummy) for testing volumes.
+
+[admin/users/logins.blade.php]
+- Legacy login history (ReportController login.history) and users.login as
+  UserLogin rows (device/OS/country) - the data feeding dashboard charts.
+
+[admin/users/monetization_detail.blade.php]
+- monetization-detail/{id} (ManageUsersController.php:429) queries monetization
+  status != initiate, sums views_count + subscriber count and shows the
+  target/actual vs minimum_subscribe/minimum_views from gs().
+  monetizationChart AJAX (49) -> getMonetizationChart() (UserService.php:407)
+  uses VideoImpression daily views + Subscriber daily adds grouped by day/month.
+  Approve/reject set monetization_status MONETIZATION_APPROVED /
+  MONETIZATION_CANCEL.
+
+[admin/users/notification_all.blade.php / notification_single.blade.php / list]
+- send-notification/{id} (75-76) single: shows form, sendNotificationSingle ->
+  UserNotificationSender->notificationToSingle (email/sms/push by $request->via).
+  Blocked if gs('en') and gs('sn') and gs('pn') are ALL off.
+- send-notification (83-84) all: sendNotificationAll validates via, subject,
+  message, batch, cooling_time, being_sent_to segment (all verified / top
+  deposited / not-login users) -> UserNotificationSender->notificationToAll.
+- list (85) JSON searchUsers (UserService.php:541) for the datatable autocomplete.
+- count-by-segment/{method} (86) live counts. notification-log/{id} (87) shows
+  NotificationLog rows for one user.
+
+[admin/kyc/index.blade.php]
+- Routes (admin-legacy.php:62-68): kyc-all, kyc-pending-list,
+  kyc-approved-list, kyc-rejected-list, kyc-create, kyc-store,
+  kyc-check-availability.
+- getKycList() (UserService.php:212): KycSubmission latest with user; status
+  filter maps pending=0/approved=1/rejected=2; search matches full_name or
+  user username/email.
+
+[admin/kyc/create.blade.php]
+- kycCreate() (ManageUsersController.php:265) lists users WITH a channel
+  (whereHas('channel')). kycStore() (272) validates personal + ID + bank fields
+  + files (id_front required image max5MB, id_back/selfie optional) ->
+  createKycSubmission() (UserService.php:263): stores ID type/number, address,
+  bank details (IFSC), uploads documents to R2 paths kyc/id_front, kyc/id_back,
+  kyc/selfies; status auto 1 (verified) on creation and sets user->kv verified.
+
+[admin/kyc/details.blade.php]
+- kyc-data/{id} (ManageUsersController.php:170) -> latest KycSubmission of the
+  user; renders documents with zoom + Accept/Reject buttons.
+  kycApprove (441) -> UserService->approveKyc(): status 1, reviewed_by = admin
+  id, reviewed_at now, then user->kv = KYC_VERIFIED + notify('KYC_APPROVE').
+  kycReject (483, reason required) -> rejectKyc(): status 2, admin_feedback =
+  reason, user->kv = KYC_UNVERIFIED + kyc_rejection_reason + notify('KYC_REJECT').
+  Both support AJAX JSON responses too.
+
+[admin/kyc/edit.blade.php]
+- kyc-edit/{id} + kyc-update/{id} (ManageUsersController.php:178/185):
+  updateKycSubmission() (UserService.php:302) resyncs all fields AND the user
+  kv flag based on the new status (1 verified / 2 rejected w/ feedback / 0
+  pending). kycDelete (310) removes the record and resets kv=0.
+
+[admin/kyc/setting.blade.php]
+- kycksetting routes (admin-legacy.php:534-535) KycController@setting /
+  settingUpdate -> updateKycSetting() (UserService.php:378): rebuilds the KYC
+  Form template (which document fields users must submit) via FormProcessor
+  generate('kyc').
+
+================================================================================
+PHASE 15 - MODERATION, SECURITY & REPORTS
+================================================================================
+
+[admin/moderation/appeals|strikes|reports/videos|reports/users|reports/reels]
+- Routes (web.php:304-306, 401-409) ModerationController:
+  reportedVideos (18), reportedUsers (24), reportedReels (58), appeals (30),
+  struckUsers (43 using CommentService->getStruckUsers), removeStrike (50),
+  handleReport (36 - status + feedback), handleReelReport (65).
+  All data comes from CommentService->getReported* / getAppeals / getStruckUsers
+  (20 rows) - reports with reporter, target, reason, action buttons.
+
+[admin/security/index|blacklist|strikes]
+- Routes (web.php:378-391) SecurityController:
+  - index: SecurityService->getSecurityDashboard() (recent failed-login
+    activity, announcements, blocked IPs).
+  - ip-block POST / ip-unblock json (blocked_ips table, unique ip).
+  - announcements CRUD (site-wide announcement banners).
+  - strikes: copyright-strike management against videos
+    (issueStrike validates video_id + reason; resolveStrike).
+  - blacklist: blacklisted_keywords table (add/remove) used by the content
+    filter (searched during uploads/comments).
+
+[admin/reports/index.blade.php]
+- Route (web.php:364-368): reports.index renders the report hub; per-report
+  actions: strike (adds a moderation strike to the reported content author),
+  resolve (mark resolved), destroy (dump report), content.destroy (also delete
+  reported content).
+
+[admin/reports/logins|watch_history|notification_history|email_details|plans|playlists|transactions]
+- Legacy ReportController (admin-legacy.php:415-424):
+  transaction (415): Transaction ledger with trx_type +/-,
+  playlist-purchased-history (417 - PurchasedPlaylist?),
+  plan-purchased-history (418), watch-history (419 - WatchHistory progress),
+  login/history (420) + login/ipHistory/{ip} (421), notification/history (422),
+  email/detail/{id} (423). Many share paginated tables + a CSV-style export.
+
+================================================================================
+PHASE 16 - NOTIFICATIONS (email / sms / push templates)
+================================================================================
+
+[admin/notification/email_setting.blade.php]
+- Routes (admin-legacy.php:558-560) NotificationController@emailSetting /
+  emailSettingUpdate / emailTest. Setting saved via ContentService->
+  updateEmailSetting (SMTP/config keys); emailTest -> sendTestEmail() to a
+  given address and reports any error.
+
+[admin/notification/global_email_template|global_sms_template|global_push_template]
+- Routes 544-551: globalEmailUpdate() (NotificationController.php:27) writes
+  the base template + from-name/from-address into the GeneralSetting row
+  (gs()->email_template etc) and marks RequiredConfig configured
+  'notification_template'. Same pattern for SMS (sms_from/sms_template) and
+  push (push_template/push_title). These are the PARENT templates all
+  per-event templates extend.
+
+[admin/notification/template/index|email|push|sms|nav|shortcodes]
+- templates (553) lists NotificationTemplate ordered by name. template/edit/
+  {type}/{id} (554) renders admin.notification.template.{email|push|sms} per
+  event; templateUpdate (555) -> ContentService->updateNotificationTemplate
+  replaces the stored template body/subject (shortcodes stay as-is).
+
+[admin/notification/push_setting|sms_setting]
+- push setting (567-570): updatePushSetting saves FCM API/config details;
+  push setting upload validates a .json and stores push_config.json via
+  getFilePath('pushConfig'); download streams it back.
+- sms setting (563-565): gateway credentials + smsTest.
+
+================================================================================
+PHASE 17 - FRONTEND CMS, LANGUAGE, ONBOARDING, EXPORTS
+================================================================================
+
+[admin/frontend/index|element|section|templates|seo|frontend_seo]
+- Routes (admin-legacy.php:601-633) FrontendController:
+  - admin.seo (601) seoEdit
+  - index, templates (+templatesActive), frontend-sections/{key},
+    frontend-content/{key} (sections.content), frontend-element/{key}/{id},
+    frontend-slug-check, frontend-element-seo/{key}/{id}, remove.
+- Content model: every CMS block is a Frontend row keyed by data_keys
+  (e.g. 'cookie.data', 'seo.data', 'policy_pages.content', section keys).
+  frontendElement loads one key, and POST sections.content saves the section's
+  data_values array (each element editable, images stored separately).
+- PageBuilderController (621-632): manage-pages (CRUD pages with slug check),
+  manage-section/{id} (order/edit page sections), manage-seo/{id} (per page SEO).
+
+[admin/language/lang.blade.php + edit_lang.blade.php]
+- Routes (admin-legacy.php:446-460) LanguageController:
+  - langManage (list, 24); langStore (30) COPIES resources/lang/en.json to the
+    new {code}.json file + creates the Language row (flag image, is_default).
+  - langUpdate (70) guards that at least one default language always exists.
+  - langDelete (111) removes the json file + flag.
+  - langEdit (120): reads the language's .json, paginates keys 20/page,
+    filters keys by search, renders edit_lang with editable key=>value pairs
+    + "add key" form.
+  - store/update/deleteLanguageJson (188/211/229): each reads the json file,
+    merges/unset/overwrites one key and file_put_contents back to disk.
+  - langImport (161): merge keys from another language OR from getKeys() which
+    RECURSIVELY SCANS every view php file for @lang('...') strings + frontend
+    data_values to auto-discover all translation keys (251-315).
+
+[admin/onboarding-slides/create|edit|index|show|actions]
+- Routes (web.php:285-286): Route::resource('onboarding-slides', OnboardingController)
+  + DELETE /onboarding-slides/destroy (massDestroy). Standard resource CRUD
+  against OnboardingSlide (app intro carousel slides: image/title/order/status).
+
+[admin/exports/table.blade.php]
+- Route (web.php:503): /admin/export/{module}/{format}
+  ExportController@export (ExportController.php:43). 12 modules mapped in
+  $exportMap: channels, videos, users, reels, comments, deposits, withdrawals,
+  plans, banners, marketplace, playlists, kyc (each an App\Exports\Admin\*
+  class extending AdminBaseExport with getData()/headers()/map()).
+  export() fetches all rows via the exporter, formats filename
+  {module}-{date-HMS} and streams CSV (php://output w/ BOM), builds XLSX via
+  PhpSpreadsheet, PDF via DomPDF using THIS VIEW (admin.exports.table), or
+  DOCX via PhpWord. abort 404/400 for unknown module/format.
+
+================================================================================
+PHASE 18 - FRONTEND-WIRED SETTINGS PAGES
+================================================================================
+
+[admin/settings/index.blade.php]
+- Route GET /admin/settings admin.settings.index (web.php:374); PUT update (375)
+  -> SiteSettingController@index/update (SiteSettingController.php): edits a
+  SiteSetting singleton row (site_name, max_upload_size, allowed_video_types,
+  default_video_quality, ads_enabled, monetization_enabled, logo) via
+  SettingService->updateSiteSettings.
+
+[admin/setting/general.blade.php]
+- Routes (admin-legacy.php:466-467) GeneralSettingController@general/
+  generalUpdate. Validation (GeneralSettingController.php:38-85) covers site
+  name/currency, monetization thresholds (minimum_subscribe, minimum_views,
+  watch_hours, monetization_amount), logo/logo_dark/favicon, upload limits,
+  Bunny Stream credentials (bunny_api_key, cdn_hostname, video/reel
+  library+collection ids), Firebase web keys, Razorpay keys, support emails,
+  Google sign-in, Giphy, Brevo + ZeptoMail providers (mail_provider), app
+  version, PPV commission (ppv_creator_commission_percent) + teaser duration.
+  -> SettingService->updateGeneralSettings persists into the GeneralSetting
+  row; every value read anywhere via gs().
+
+[admin/setting/configuration|ad|charge|cookie|custom_css|holiday|maintenance|robots|sitemap|social_credential|system]
+- All via GeneralSettingController (admin-legacy.php:477-512):
+  - system-configuration: system toggles (registration, email verification,
+    upload approval policy...).
+  - ad-setting: ad module on/off + per-minute cap + per impression/click
+    earn/spend rates (adSettingUpdate, 260).
+  - charge-setting: video_sell_charge / playlist_sell_charge /
+    plan_sell_charge percentages from gs settings.
+  - cookie: edits the Frontend 'cookie.data' row content.
+  - custom_css: reads activeTemplate('...').'/css/custom.css' into a textarea,
+    submits straight back to the file (SettingService->updateCustomCss).
+  - maintenance: banner image + description; gate via gs('maintenance_mode')
+    (web.php:535-538).
+  - robot / sitemap: edit public/robots.txt and public/sitemap.xml directly.
+  - socialite credentials: socialiteCredentials + per-key update/status routes
+    (web.php:472-474) -> Service->updateSocialiteCredential (Google client etc).
+  - holiday: Holiday rows + weekly off-day submit.
+  - system setting: language/timezone/version.
+
+[admin/setting/logo_icon.blade.php]
+- logo-icon + logo-icon-update (admin-legacy.php:481-482) uploads logo,
+  logo_dark, favicon (png only) and splash_logo via SettingService.
+
+[admin/setting/keyword_blacklist.blade.php]
+- Routes (web.php:419-423) under settings/ prefix: keyword-blacklist list +
+  store (unique word) + delete -> keyword_blacklists table (used by the
+  housekeeping/moderation filter).
+
+================================================================================
+PHASE 19 - STORAGE
+================================================================================
+
+[admin/storage/index.blade.php]
+- Routes (admin-legacy.php:273-289) ManageStorageController.
+  index -> StorageService->getAllStorages() lists storage buckets/drivers.
+
+[admin/storage/digital_ocean/form|ftp/form|wasabi/form]
+- wasabi-form / digital-ocean-form / ftp-form (275-284): getStorageForm(type, id)
+  loads an existing bucket for editing or blanks a new one; each form carries
+  the credentials relevant to that provider (key/secret/region/bucket/url).
+  save-* endpoints (276/280/284) -> StorageService->saveWasabi etc.
+  check-config/{id} (288) performs an AJAX connectivity test; status/{id} (286)
+  activates/deactivates the bucket. The active bucket decides where site files
+  (via fileManager / IsStorage checks) go.
+
+================================================================================
+PHASE 20 - CRON, SYSTEM & EXTENSIONS
+================================================================================
+
+[admin/cron/index|schedule|logs]
+- Routes (admin-legacy.php:515-530) CronConfigurationController:
+  - cronJobs (index) -> SettingService->getCronJobs returns jobs + last-run
+    status (drives the cron_modal warning on the dashboard).
+  - cronJobStore/Update: name, next_run, cron_schedule_id, url (default jobs
+    keep their url locked). cronJobDelete only non-default.
+  - schedule: CronSchedule list (interval seconds); scheduleStore add/update,
+    scheduleStatus toggle, schedulePause -> CronJob->changeStatus($id,'is_running').
+  - scheduleLogs/{id} -> getCronJobLogs + resolve single log error +
+    logFlush deletes all logs for that job.
+
+[admin/system/info|server|optimize|update|update_log]
+- Routes (admin-legacy.php:587-598) SystemController:
+  - info: SettingService->getSystemInfo (PHP/Laravel/server env breakdown).
+  - server-info: dumps $_SERVER + phpversion() (systemServerInfo).
+  - optimize: helper page; optimize-clear -> SettingService->clearCache()
+    (Artisan optimize:clear).
+  - system-update + process: systemUpdateProcess (SystemController.php:52)
+    requires the zip extension, downloads update zips to core/temp, extracts,
+    checks config.json, runs update.sql via DB::unprepared, records an
+    UpdateLog and ends with Artisan optimize:clear (all JSON responses).
+  - system-update/log: lists UpdateLog rows.
+
+[admin/extension/index.blade.php]
+- Routes (admin-legacy.php:577-584) ExtensionController: list add-ons, POST
+  update (license key), POST status (enable/disable module).
+
+================================================================================
+PHASE 21 - MARKETPLACE, SUBSCRIBERS & SUPPORT
+================================================================================
+
+[admin/marketplace/index|create|edit|show|ratings*|contacts*|gallery*|services*|portfolio*|transaction]
+- Routes (admin-legacy.php:637-702) MarketController + sub-controllers:
+  - index (marketplace.index) with bulk; actor/influencer/investor segment
+    filters; create/show/edit/status/delete + featured toggle + login-as-talent
+    (loginAsTalent -> Auth::loginUsingId into the talent's frontend session).
+  - gallery/* (MarketGalleryController), services/* (MarketServiceController),
+    portfolio/* (MarketPortfolioController with image delete + status),
+    contacts/* (MarketContactController message threads),
+    transactions (MarketTransactionController@index),
+    ratings CRUD (MarketController@ratings/createRating/storeRating/editRating/
+    updateRating/deleteRating).
+- These manage the talent discovery layer (profiles, portfolios, services,
+  gallery items, investor messages and marketplace purchases).
+
+[admin/subscriber/index.blade.php]
+- Route (admin-legacy.php:326-331): SubscriberController@index lists
+  user->channel subscriptions + counts.
+
+[admin/support/tickets|reply]
+- Routes (admin-legacy.php:427-443) SupportTicketController:
+  tickets (index), pending/closed/answered tabs, view/{id} (ticketReply),
+  reply/{id}, close/{id}, download/{attachment_id} (decrypt path),
+  delete/{id} (ticket) + message/delete/{id}, hub-data/{id} (AJAX thread
+  reload) + hub-status/{id} (set status). Tickets have a chat-style thread
+  of SupportMessage rows; replying notifies the user.
+
+================================================================================
+END OF DOCUMENT
+================================================================================

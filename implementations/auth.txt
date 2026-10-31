@@ -1,0 +1,144 @@
+╔══════════════════════════════════════════════════════════════╗
+║        AUTHENTICATION ARCHITECTURE PATTERN                  ║
+║     app/Http/Controllers/Auth/ + Admin/Auth + API Auth     ║
+╚══════════════════════════════════════════════════════════════╝
+
+══════════════════════════════════════════════════════════════
+  1. AUTH CONTROLLER OVERVIEW (10 + 1 + 1 = 12 total)
+══════════════════════════════════════════════════════════════
+
+  ┌─ USER AUTH (app/Http/Controllers/Auth/) ────────────────┐
+  │                                                        │
+  │  1. RegisteredUserController.php         → Register    │
+  │  2. AuthenticatedSessionController.php   → Login/Logout│
+  │  3. PasswordResetLinkController.php      → Forgot pwd  │
+  │  4. NewPasswordController.php            → Reset pwd   │
+  │  5. EmailVerificationPromptController.php→ Verify email│
+  │  6. EmailVerificationNotificationController.php → Resend│
+  │  7. VerifyEmailController.php            → Verify link │
+  │  8. ConfirmablePasswordController.php    → Confirm pwd │
+  │  9. PasswordController.php               → Update pwd  │
+  │ 10. SocialiteController.php             → Google/GitHub│
+  │                                                        │
+  │  Routes: auth.php (Laravel breeze scaffold)            │
+  │  Views:  resources/views/auth/                         │
+  │  Layout: @extends('layouts.guest')                     │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+  ┌─ ADMIN AUTH (app/Http/Controllers/Admin/) ─────────────┐
+  │                                                        │
+  │  Admin\AuthController.php                              │
+  │    → showLoginForm, login, showRegisterForm, register   │
+  │    → showForgotPasswordForm, sendResetLink              │
+  │    → showResetPasswordForm, resetPassword, logout       │
+  │                                                        │
+  │  Routes: web.php (admin prefix, guest:admin middleware) │
+  │  Views:  resources/views/admin/auth/                    │
+  │  Guard:  'admin' (separate from user auth)              │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+  ┌─ API AUTH (app/Http/Controllers/) ─────────────────────┐
+  │                                                        │
+  │  ApiAuthController.php                                 │
+  │    → login, register, googleLogin, logout              │
+  │                                                        │
+  │  Routes: api.php (api/v1/auth prefix)                  │
+  │  Guard:  'sanctum' (token-based for Flutter)           │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+  ┌─ MARKETPLACE AUTH (app/Http/Controllers/) ──────────────┐
+  │                                                        │
+  │  MarketPlaceController.php (login/register methods)    │
+  │    → showRegistrationForm, register                    │
+  │    → showLoginForm, login, logout                      │
+  │                                                        │
+  │  Routes: web.php (marketplace prefix)                  │
+  │  Middleware: \App\Http\Middleware\MarketplaceAuth       │
+  │  Auth Type: Session-based (separate from user)          │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+  ┌─ GOOGLE OAUTH (app/Http/Controllers/) ─────────────────┐
+  │                                                        │
+  │  GoogleController.php                                  │
+  │    → googlePage, googleCallBack                        │
+  │                                                        │
+  │  Routes: web.php (/auth/google/* prefix)               │
+  │  Used for: Frontend Google Sign-In/Sign-Up             │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  2. AUTH GUARDS & MIDDLEWARE
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  CONTEXT      │ GUARD        │ MIDDLEWARE               │
+  ├─────────────────────────────────────────────────────────┤
+  │  Web (user)   │ web          │ auth, guest              │
+  │  Admin        │ admin        │ admin, guest:admin       │
+  │  API (mobile) │ sanctum      │ auth:sanctum             │
+  │  Marketplace  │ web (custom) │ MarketplaceAuth          │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  3. AUTH VIEW STRUCTURE
+══════════════════════════════════════════════════════════════
+
+  resources/views/auth/
+  ├── login.blade.php                → Login form
+  ├── register.blade.php             → Registration form
+  ├── forgot-password.blade.php      → Email form
+  ├── reset-password.blade.php       → New password form
+  ├── confirm-password.blade.php     → Confirm before action
+  └── verify-email.blade.php         → Verify notice
+
+  resources/views/admin/auth/
+  ├── login.blade.php                → Admin login
+  ├── register.blade.php             → Admin register
+  └── passwords/                     → Admin password reset
+
+══════════════════════════════════════════════════════════════
+  4. SERVICES TO CREATE
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  1. AuthService.php  → app/Services/                   │
+  │     Methods: register, login, sendResetLink, resetPassword│
+  │     verifyEmail, socialLogin, updatePassword           │
+  │     Used by: All Auth controllers (shared logic)       │
+  │                                                        │
+  │  2. AdminAuthService.php  → app/Services/Admin/        │
+  │     Methods: login, register, sendResetLink, resetPwd  │
+  │     Used by: Admin\AuthController                      │
+  │                                                        │
+  │  3. ApiAuthService.php  → app/Services/Api/            │
+  │     Methods: login, register, googleLogin, logout      │
+  │     Used by: ApiAuthController                         │
+  │                                                        │
+  │  4. SocialAuthService.php  → app/Services/             │
+  │     Methods: handleGoogleCallback, handleGitHubCallback│
+  │     Used by: SocialiteController, GoogleController     │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  ⚠  DO'S & DON'TS
+══════════════════════════════════════════════════════════════
+
+  ✅ DO's:
+  • Keep existing Auth controllers as-is — they are Laravel
+    Breeze scaffold and work perfectly.
+  • Keep ApiAuthController at root (routes/api.php references it).
+  • Use 'auth:sanctum' guard for API authentication.
+  • Use 'admin' guard for admin authentication.
+
+  ❌ DON'Ts:
+  • DON'T modify or remove Auth controllers — they handle
+    critical login/register/password-reset flows.
+  • DON'T change the admin guard or marketplace auth middleware.
+  • DON'T remove Sanctum — it's used by the Flutter app.
+  • DON'T change session-based auth to token-based for web.
+  • DON'T modify the Google OAuth callback URLs.

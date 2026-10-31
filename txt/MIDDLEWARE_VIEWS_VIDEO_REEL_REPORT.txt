@@ -1,0 +1,105 @@
+﻿================================================================================
+   BINTEO - MIDDLEWARE & VIEW FILES REPORT (VIDEO/REEL SCOPE)
+   Generated: 24 Aug 2026
+================================================================================
+
+PART A - MIDDLEWARE (full stack as applied to video/reel pages & uploads)
+================================================================================
+Executed in this order on every web request (bootstrap/app.php):
+
+1. CheckMaintenanceMode.php ....... Returns 503 when maintenance mode is on;
+                                    admins bypass. Blocks video/reel viewing
+                                    during maintenance windows.
+2. IpBlockingMiddleware.php ....... Rejects requests from banned IPs before
+                                    any page or upload endpoint is reached.
+3. VisitorLogMiddleware.php ....... Writes a visitor tracking row per visit.
+                                    Runs on watch pages too (read-only for
+                                    request body - safe for TUS).
+4. ForceUpdateMiddleware.php ...... Forces minimum app/version compliance.
+5. BlockAdminFromFrontend.php ..... Prevents admin-guard sessions from using
+                                    user-side video/reel features.
+6. XssSanitization.php ............ Sanitizes input arrays. ***EXCLUDED for
+                                    /tus-proxy/*** via withoutMiddleware in
+                                    routes/web.php:651 - binary video chunks
+                                    must pass through untouched.
+7. SecurityHeaders.php ............ Adds CSP/X-Frame/no-sniff headers to all
+                                    video/reel responses.
+8. Honeypot.php ................... Bot-trap validation on forms.
+9. CheckUserStatus.php ............ [VERIFIED] Bans/suspends enforcement -
+                                    blocked users cannot watch/upload/comment.
+10. CaptureTrafficSource.php ...... UTM/referrer attribution on entry.
+11. LogSystemPerformance.php ...... Logs slow requests via queued job; runs on
+                                    PATCH /tus-proxy too (log-only, no body
+                                    access).
+12. CheckModerationStrikes.php .... [VERIFIED scope] Blocks UPLOADS for
+                                    creators with >=3 copyright strikes.
+13. CheckModerationNotices.php .... Forces creators to acknowledge moderation
+                                    notices before uploading.
+14. UpdateLastSeen.php ............ Cache::put last-seen timestamp every
+                                    request (file cache - no DB hit).
+
+ALIASED MIDDLEWARE:
+AdminMiddleware ('admin') ......... Guards admin\ video/reel controllers.
+MarketplaceAuth ................... Marketplace only (not video/reel).
+ThrottleVideoViews ('throttle_views') Rate-limits view-count endpoints.
+CheckAppVersion ................... API version gate (mobile apps).
+
+UPLOAD-CRITICAL NOTES [VERIFIED]:
+- No middleware reads or consumes the PATCH request body; body is read once
+  in TusProxyController::getContent().
+- CSRF exclusions (bootstrap/app.php): tus-proxy, tus-proxy/*, webhooks/*,
+  ipn/*, api/telemetry/* - verified live (302 not 419).
+
+================================================================================
+PART B - VIEW FILES (video/reel only)
+================================================================================
+
+--- FRONTEND VIDEOS (resources\views\frontend\videos\) ---
+create.blade.php [61KB] ........ Upload wizard (Alpine videoUpload): 3-step,
+                                 TUS 2MB chunks via /tus-proxy, same-file
+                                 reselect reset, double-submit guard,
+                                 versioned local tus.min.js, automatic
+                                 fallback. [MODIFIED THIS SESSION]
+show.blade.php [292.9KB] ....... Watch page: Plyr + hls.js player (deferred),
+                                 comments, related videos, ad system, PPV
+                                 paywall + Razorpay checkout, watchtime
+                                 telemetry pings, like/subscribe actions.
+history.blade.php [20.6KB] ..... Watch history management.
+liked.blade.php [25.2KB] ....... Liked videos listing.
+watch_later.blade.php [26.9KB] . Watch later playlist page.
+
+--- FRONTEND REELS (resources\viewsfrontend\reels\) ---
+create.blade.php [185.1KB] ..... Reel wizard: gallery upload OR live camera
+                                 recording (MediaRecorder, filters, duet
+                                 mode), music system (global/library/upload),
+                                 <=90s validation, TUS via /tus-proxy with
+                                 same guards/fallback. [MODIFIED THIS SESSION]
+index.blade.php [173.9KB] ...... Reels feed: vertical HLS player stack,
+                                 status polling for processing reels, inline
+                                 Alpine state (~2900 lines total file).
+show.blade.php [4.3KB] ......... Single reel embed/detail view.
+audio.blade.php [5.8KB] ........ Original audio page (uses of a sound).
+
+--- ADMIN VIDEOS (resources\views\admin\videos\) ---
+create.blade.php [45.3KB] ...... Admin manual video creation (incl. stock/
+                                 free tiers).
+edit.blade.php [34.3KB] ........ Video edit form (metadata, flags, pricing).
+index.blade.php [33.7KB] ....... Video list w/ tabs (regular/shorts/stock/
+                                 free/draft/published/rejected/public/private/
+                                 featured/trending) + bulk actions.
+view.blade.php [27.2KB] ........ Admin video detail/review.
+analytics.blade.php [9.1KB] .... Per-video analytics.
+not_interested.blade.php [4.6KB] Not-interested feedback report.
+interactions\: comments [5.6KB], likes [4.9KB], playlists [5KB],
+watch_later [5KB] .............. Interaction moderation listings.
+
+--- ADMIN REELS (resources\views\admin\reels\) ---
+create.blade.php [98.1KB] ...... Admin reel creation.
+edit.blade.php [27.3KB] ........ Reel edit form.
+index.blade.php [24.3KB] ....... Reel list w/ status tabs + approve/reject +
+                                 bulk actions.
+saved_audios.blade.php [4.4KB] . Saved reel audio library.
+
+================================================================================
+END OF REPORT
+================================================================================

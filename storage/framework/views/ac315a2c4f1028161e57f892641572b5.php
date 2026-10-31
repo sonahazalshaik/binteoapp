@@ -1,0 +1,62 @@
+<!-- Tab: Services -->
+<div x-show="tab === 'services'" x-cloak x-transition class="space-y-8">
+    <div class="bg-white dark:bg-[#111] p-3 md:p-5 rounded-2xl border border-slate-200 dark:border-white/5 shadow-sm">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-lg md:text-xl font-black text-slate-900 dark:text-white tracking-tighter">Service Offerings</h2>
+            <button @click="document.getElementById('new-service-form').scrollIntoView({behavior: 'smooth'})" class="px-4 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-bold text-[9px] uppercase tracking-widest">Add New</button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+            <?php $__currentLoopData = $client->services; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $service): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+            <div class="p-4 bg-slate-50 dark:bg-white/5 rounded-2xl border border-slate-100 dark:border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-3 group">
+                <div class="flex items-center gap-3 min-w-0 flex-1">
+                    <div class="w-12 h-12 rounded-xl overflow-hidden bg-white dark:bg-black shadow-sm shrink-0">
+                        <img src="<?php echo e(getImage($service->service_img)); ?>" class="w-full h-full object-cover">
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <h4 class="text-sm font-bold text-slate-900 dark:text-white truncate"><?php echo e($service->service_name); ?></h4>
+                        <p class="text-[11px] font-medium text-slate-500 line-clamp-1"><?php echo e($service->service_brief); ?></p>
+                    </div>
+                </div>
+                <div class="flex items-center justify-end gap-2 pt-2.5 border-t border-slate-200/60 dark:border-white/5 md:border-t-0 md:pt-0 md:opacity-0 md:group-hover:opacity-100 transition-all shrink-0">
+                    <button @click="editService.open = true; editService.id = <?php echo e($service->id); ?>; editService.name = <?php echo \Illuminate\Support\Js::from($service->service_name)->toHtml() ?>; editService.brief = <?php echo \Illuminate\Support\Js::from($service->service_brief)->toHtml() ?>; editService.img = '<?php echo e(getImage($service->service_img)); ?>'" 
+                            class="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 dark:hover:text-white transition-all shadow-sm"
+                            title="Edit Service">
+                        <span class="material-symbols-rounded text-lg">edit</span>
+                    </button>
+                    <form action="<?php echo e(route('marketplace.service.delete', $service->id)); ?>" method="POST" onsubmit="showServiceLoader('Permanently removing this service offering...')">
+                        <?php echo csrf_field(); ?>
+                        <button type="submit" class="w-9 h-9 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center justify-center hover:bg-rose-600 hover:text-white dark:hover:bg-rose-600 dark:hover:text-white transition-all shadow-sm"
+                                title="Delete Service">
+                            <span class="material-symbols-rounded text-lg">delete</span>
+                        </button>
+                    </form>
+                </div>
+            </div>
+            <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+        </div>
+
+        <div id="new-service-form" class="pt-6 border-t border-slate-100 dark:border-white/5">
+            <h3 class="text-base font-bold mb-5 text-slate-900 dark:text-white">Create New Offering</h3>
+            <form action="<?php echo e(route('marketplace.service.store')); ?>" method="POST" enctype="multipart/form-data" class="space-y-4" onsubmit="showServiceLoader('Architecting your new service offering...')">
+                <?php echo csrf_field(); ?>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-3 mb-1.5 block">Service Icon</label>
+                        <input type="file" name="service_img" class="w-full px-4 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-[10px] font-bold" required>
+                    </div>
+                    <div>
+                        <label class="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-3 mb-1.5 block">Service Title</label>
+                        <input type="text" name="service_name" class="w-full px-4 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-sm font-bold" required>
+                    </div>
+                </div>
+                <textarea name="service_brief" rows="2" class="w-full px-5 py-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-sm font-bold" placeholder="Service description..."></textarea>
+                <div class="flex items-center justify-end gap-3 mt-4">
+                    <button type="button" @click="document.getElementById('new-service-form').scrollIntoView({behavior: 'smooth'}); document.querySelector('#new-service-form input, #new-service-form textarea').value = ''" class="px-6 py-2.5 bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-slate-200 dark:hover:bg-white/10 transition-all">Cancel</button>
+                    <button type="submit" class="px-8 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-bold text-[10px] uppercase tracking-widest shadow-sm hover:bg-slate-800 transition-all">Create Offering</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<?php /**PATH C:\laragon\www\youtube-test(23-10-2026)\resources\views\frontend\marketplace\sections\services.blade.php ENDPATH**/ ?>

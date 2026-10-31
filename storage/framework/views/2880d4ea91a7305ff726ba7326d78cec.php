@@ -1,0 +1,2 @@
+<?php echo $__env->make('layouts.navigation', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
+<?php /**PATH C:\laragon\www\youtube-test(23-10-2026)\resources\views\layouts\header.blade.php ENDPATH**/ ?>

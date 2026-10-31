@@ -1,0 +1,360 @@
+
+<?php $__env->startSection('content'); ?>
+    <div class="row justify-content-center">
+        <?php if(request()->routeIs('admin.deposit.list') || request()->routeIs('admin.deposit.method') || request()->routeIs('admin.users.deposits') || request()->routeIs('admin.users.deposits.method')): ?>
+            <div class="col-12 mb-8">
+                <?php echo $__env->make('admin.deposit.widget', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
+            </div>
+        <?php endif; ?>
+
+        <div class="col-md-12">
+            <div class="bg-white dark:bg-[#121212] border border-slate-200 dark:border-white/10 rounded-[3rem] overflow-hidden shadow-2xl transition-all duration-300">
+                <div class="px-6 py-8 border-b border-slate-100 dark:border-white/5 flex items-center justify-between">
+                    <div>
+                        <h3 class="text-2xl font-black tracking-tighter text-slate-900 dark:text-white uppercase leading-none">Financial Influx</h3>
+                        <p class="text-[9px] font-black text-slate-400 dark:text-white/20 uppercase tracking-[0.4em] mt-3 leading-relaxed">Audit trail for all inbound payment gateway transactions</p>
+                    </div>
+                </div>
+                <div class="px-6 pt-6">
+                    <?php
+                        $exportScope = request()->routeIs('admin.deposit.pending') ? 'pending'
+                            : (request()->routeIs('admin.deposit.rejected') ? 'rejected'
+                            : (request()->routeIs('admin.deposit.successful') ? 'successful' : null));
+                    ?>
+                    <?php echo $__env->make('admin.components.table-toolbar', ['module' => 'deposits', 'exportTotal' => $deposits->total(), 'exportScope' => $exportScope], array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
+                </div>
+                
+                <div class="overflow-x-auto scrollbar-hide" x-show="!$store.viewMode || $store.viewMode.mode === 'table'">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50 dark:bg-white/[0.02]">
+                                <th class="px-6 py-4 text-[9px] font-black uppercase tracking-[0.25em] text-slate-400 dark:text-white/30 whitespace-nowrap"><?php echo app('translator')->get('Gateway / TRX'); ?></th>
+                                <th class="px-6 py-4 text-[9px] font-black uppercase tracking-[0.25em] text-slate-400 dark:text-white/30 whitespace-nowrap"><?php echo app('translator')->get('Originator'); ?></th>
+                                <th class="px-6 py-4 text-[9px] font-black uppercase tracking-[0.25em] text-slate-400 dark:text-white/30 whitespace-nowrap"><?php echo app('translator')->get('Amount Matrix'); ?></th>
+                                <th class="px-6 py-4 text-[9px] font-black uppercase tracking-[0.25em] text-slate-400 dark:text-white/30 whitespace-nowrap text-center"><?php echo app('translator')->get('Status'); ?></th>
+                                <th class="px-6 py-4 text-[9px] font-black uppercase tracking-[0.25em] text-slate-400 dark:text-white/30 whitespace-nowrap text-right"><?php echo app('translator')->get('Action'); ?></th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 dark:divide-white/5">
+                            <?php $__empty_1 = true; $__currentLoopData = $deposits; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $deposit): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); $__empty_1 = false; ?>
+                                <tr class="hover:bg-slate-50/50 dark:hover:bg-white/[0.01] transition-colors group">
+                                    <td class="px-6 py-4">
+                                        <div class="flex flex-col">
+                                            <span class="text-[11px] font-black text-slate-900 dark:text-white uppercase tracking-tight">
+                                                <?php if($deposit->method_code < 5000): ?>
+                                                    <?php echo e(__(@$deposit->gateway->name)); ?>
+
+                                                <?php else: ?>
+                                                    <?php echo app('translator')->get('Google Pay'); ?>
+                                                <?php endif; ?>
+                                            </span>
+                                            <code class="text-[9px] text-orange-500 font-bold uppercase mt-1"><?php echo e($deposit->trx); ?></code>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/5 flex items-center justify-center text-slate-400 font-black text-[12px] group-hover:scale-110 transition-transform">
+                                                <?php if($deposit->user): ?>
+                                                    <?php echo e(substr($deposit->user->fullname, 0, 1)); ?>
+
+                                                <?php elseif($deposit->marketplace): ?>
+                                                    <?php echo e(substr($deposit->marketplace->name, 0, 1)); ?>
+
+                                                <?php else: ?>
+                                                    ?
+                                                <?php endif; ?>
+                                            </div>
+                                            <div class="flex flex-col">
+                                                <?php if($deposit->user): ?>
+                                                    <span class="text-[11px] font-black text-slate-900 dark:text-white leading-none mb-1"><?php echo e($deposit->user->fullname); ?></span>
+                                                    <a href="<?php echo e(appendQuery('search', @$deposit->user->username)); ?>" class="text-[9px] font-bold text-blue-500 uppercase tracking-widest hover:underline">@<span><?php echo e($deposit->user->username); ?></span></a>
+                                                <?php elseif($deposit->marketplace): ?>
+                                                    <span class="text-[11px] font-black text-slate-900 dark:text-white leading-none mb-1"><?php echo e($deposit->marketplace->name); ?></span>
+                                                    <span class="text-[9px] font-bold text-orange-500 uppercase tracking-widest">[Marketplace]</span>
+                                                <?php else: ?>
+                                                    <span class="text-[11px] font-black text-slate-900 dark:text-white leading-none mb-1">Deleted User</span>
+                                                    <span class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">@<span>N/A</span></span>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <div class="flex flex-col gap-0.5">
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-[12px] font-black text-slate-900 dark:text-white"><?php echo e(showAmount($deposit->amount, 0)); ?></span>
+                                                <span class="text-[9px] font-bold text-red-500 uppercase tracking-tighter" title="Charge">+<?php echo e(showAmount($deposit->charge, 0)); ?></span>
+                                            </div>
+                                            <span class="text-[10px] font-bold text-slate-400 ">Total: <?php echo e(showAmount($deposit->amount + $deposit->charge, 0)); ?></span>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4 text-center">
+                                        <?php echo $deposit->statusBadge ?>
+                                    </td>
+                                    <td class="px-6 py-4 text-right">
+                                        <div class="flex items-center justify-end gap-2">
+                                            <?php if($deposit->status == Status::PAYMENT_PENDING): ?>
+                                                <form action="<?php echo e(route('admin.deposit.approve', $deposit->id)); ?>" method="POST" class="inline m-0">
+                                                    <?php echo csrf_field(); ?>
+                                                    <button type="submit" class="h-10 px-3 rounded-xl bg-emerald-500 text-white flex items-center justify-center gap-2 hover:scale-105 transition-all shadow-sm">
+                                                        <span class="material-symbols-rounded text-sm">check_circle</span>
+                                                        <span class="text-[9px] font-black uppercase tracking-widest"><?php echo app('translator')->get('Approve'); ?></span>
+                                                    </button>
+                                                </form>
+                                                <button class="h-10 px-3 rounded-xl bg-rose-500 text-white flex items-center justify-center gap-2 hover:scale-105 transition-all shadow-sm" 
+                                                        @click="$dispatch('open-deposit-reject-modal', { id: <?php echo e($deposit->id); ?>, trx: '<?php echo e($deposit->trx); ?>' })">
+                                                    <span class="material-symbols-rounded text-sm">cancel</span>
+                                                    <span class="text-[9px] font-black uppercase tracking-widest"><?php echo app('translator')->get('Reject'); ?></span>
+                                                </button>
+                                            <?php endif; ?>
+                                            <a href="<?php echo e(route('admin.deposit.details', $deposit->id)); ?>" class="h-10 px-3 rounded-xl bg-blue-500 text-white flex items-center justify-center gap-2 hover:scale-105 transition-all shadow-sm">
+                                                <span class="material-symbols-rounded text-sm">visibility</span>
+                                                <span class="text-[9px] font-black uppercase tracking-widest"><?php echo app('translator')->get('Details'); ?></span>
+                                            </a>
+                                            <button class="h-10 px-3 rounded-xl bg-red-500 text-white flex items-center justify-center gap-2 hover:scale-105 transition-all confirmationBtn" 
+                                                    data-action="<?php echo e(Route::has('admin.deposit.delete') ? route('admin.deposit.delete', $deposit->id) : route('admin.deposit.destroy', $deposit->id)); ?>" 
+                                                    data-method="DELETE"
+                                                    data-question="<?php echo app('translator')->get('Are you sure you want to delete this record?'); ?>">
+                                                <span class="material-symbols-rounded text-sm">delete</span>
+                                                <span class="text-[9px] font-black uppercase tracking-widest"><?php echo app('translator')->get('Delete'); ?></span>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
+                                <tr>
+                                    <td colspan="5" class="px-10 py-24 text-center">
+                                        <div class="w-20 h-20 mx-auto mb-6 rounded-[1.75rem] bg-slate-100 dark:bg-white/5 flex items-center justify-center">
+                                            <span class="material-symbols-rounded text-4xl text-slate-300 dark:text-white/20">receipt_long</span>
+                                        </div>
+                                        <h3 class="text-lg font-black text-slate-900 dark:text-white uppercase tracking-tight mb-2">No Entries Found</h3>
+                                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-[0.25em]">Nothing to display for this filter</p>
+                                    </td>
+                                </tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- App View Grid -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 p-6" x-show="$store.viewMode && $store.viewMode.mode === 'app'" x-cloak>
+                    <?php $__empty_1 = true; $__currentLoopData = $deposits; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $deposit): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); $__empty_1 = false; ?>
+                        <div class="group bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 rounded-3xl p-6 hover:shadow-xl hover:border-orange-500/30 transition-all duration-300">
+                            <div class="flex justify-between items-start mb-4">
+                                <div class="flex-1">
+                                    <span class="text-[10px] font-black text-slate-400 dark:text-white/40 uppercase tracking-widest block mb-1">
+                                        <?php if($deposit->method_code < 5000): ?>
+                                            <?php echo e(__(@$deposit->gateway->name)); ?>
+
+                                        <?php else: ?>
+                                            <?php echo app('translator')->get('Google Pay'); ?>
+                                        <?php endif; ?>
+                                    </span>
+                                    <code class="text-[12px] font-black text-orange-500 uppercase"><?php echo e($deposit->trx); ?></code>
+                                </div>
+                                <div>
+                                    <?php echo $deposit->statusBadge; ?>
+                                </div>
+                            </div>
+
+                            <div class="space-y-3 mb-6">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/5 flex items-center justify-center text-slate-500 font-black">
+                                        <?php if($deposit->user): ?>
+                                            <?php echo e(substr($deposit->user->fullname, 0, 1)); ?>
+
+                                        <?php elseif($deposit->marketplace): ?>
+                                            <?php echo e(substr($deposit->marketplace->name, 0, 1)); ?>
+
+                                        <?php else: ?>
+                                            ?
+                                        <?php endif; ?>
+                                    </div>
+                                    <div>
+                                        <span class="text-[9px] font-black text-slate-400 dark:text-white/30 uppercase tracking-widest block">Originator</span>
+                                        <?php if($deposit->user): ?>
+                                            <span class="text-[11px] font-bold text-slate-700 dark:text-white/70 block leading-tight"><?php echo e($deposit->user->fullname); ?></span>
+                                            <a href="<?php echo e(appendQuery('search', @$deposit->user->username)); ?>" class="text-[9px] font-bold text-blue-500 uppercase tracking-widest hover:underline">@<span><?php echo e($deposit->user->username); ?></span></a>
+                                        <?php elseif($deposit->marketplace): ?>
+                                            <span class="text-[11px] font-bold text-slate-700 dark:text-white/70 block leading-tight"><?php echo e($deposit->marketplace->name); ?></span>
+                                            <span class="text-[9px] font-bold text-orange-500 uppercase tracking-widest">[Marketplace]</span>
+                                        <?php else: ?>
+                                            <span class="text-[11px] font-bold text-slate-700 dark:text-white/70 block">Deleted User</span>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                                <div class="flex justify-between items-center bg-slate-50 dark:bg-white/[0.02] rounded-2xl p-3">
+                                    <div>
+                                        <span class="text-[9px] font-black text-slate-400 dark:text-white/30 uppercase tracking-widest block">Amount</span>
+                                        <span class="text-[12px] font-black text-slate-900 dark:text-white"><?php echo e(showAmount($deposit->amount, 0)); ?></span>
+                                        <span class="text-[9px] font-bold text-red-500 uppercase tracking-tighter block">+<?php echo e(showAmount($deposit->charge, 0)); ?> charge</span>
+                                    </div>
+                                    <div class="text-right">
+                                        <span class="text-[9px] font-black text-slate-400 dark:text-white/30 uppercase tracking-widest block">Total Matrix</span>
+                                        <span class="text-[12px] font-black text-emerald-600 dark:text-emerald-400"><?php echo e(showAmount($deposit->amount + $deposit->charge, 0)); ?></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="flex flex-wrap items-center gap-2 pt-4 border-t border-slate-100 dark:border-white/5">
+                                <?php if($deposit->status == Status::PAYMENT_PENDING): ?>
+                                    <form action="<?php echo e(route('admin.deposit.approve', $deposit->id)); ?>" method="POST" class="flex-1">
+                                        <?php echo csrf_field(); ?>
+                                        <button type="submit" class="w-full h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center gap-2 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-sm">
+                                            <span class="material-symbols-rounded text-sm">check_circle</span>
+                                            Approve
+                                        </button>
+                                    </form>
+                                    <button type="button" class="flex-1 h-10 rounded-xl bg-rose-500 text-white flex items-center justify-center gap-2 text-[9px] font-black uppercase tracking-widest hover:bg-rose-600 transition-all shadow-sm"
+                                            @click="$dispatch('open-deposit-reject-modal', { id: <?php echo e($deposit->id); ?>, trx: '<?php echo e($deposit->trx); ?>' })">
+                                        <span class="material-symbols-rounded text-sm">cancel</span>
+                                        Reject
+                                    </button>
+                                <?php endif; ?>
+                                
+                                <div class="flex items-center gap-2 w-full">
+                                    <a href="<?php echo e(route('admin.deposit.details', $deposit->id)); ?>" class="flex-grow h-10 rounded-xl bg-blue-500 text-white text-[9px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all flex items-center justify-center gap-2 shadow-sm">
+                                        <span class="material-symbols-rounded text-sm">visibility</span>
+                                        Details
+                                    </a>
+                                    <button type="button" class="flex-grow h-10 rounded-xl bg-red-500 text-white text-[9px] font-black uppercase tracking-widest hover:bg-red-600 transition-all flex items-center justify-center gap-2 confirmationBtn shadow-sm"
+                                            data-action="<?php echo e(Route::has('admin.deposit.delete') ? route('admin.deposit.delete', $deposit->id) : route('admin.deposit.destroy', $deposit->id)); ?>" 
+                                            data-method="DELETE"
+                                            data-question="<?php echo app('translator')->get('Are you sure you want to delete this record?'); ?>">
+                                        <span class="material-symbols-rounded text-sm">delete</span>
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
+                        <div class="col-span-full flex flex-col items-center justify-center p-12 text-center">
+                            <div class="w-20 h-20 bg-slate-100 dark:bg-white/5 rounded-2xl flex items-center justify-center mb-4">
+                                <span class="material-symbols-rounded text-4xl text-slate-300 dark:text-white/20">receipt_long</span>
+                            </div>
+                            <h4 class="text-lg font-black text-slate-700 dark:text-white uppercase tracking-widest mb-1">No Entries Found</h4>
+                            <p class="text-[11px] font-bold text-slate-400 dark:text-white/40">Nothing to display for this filter.</p>
+                        </div>
+                    <?php endif; ?>
+                </div>
+                
+                <?php if($deposits->hasPages()): ?>
+                    <div class="p-6 border-t border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-white/[0.01]">
+                        <?php echo paginateLinks($deposits) ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+    <?php if (isset($component)) { $__componentOriginalbd5922df145d522b37bf664b524be380 = $component; } ?>
+<?php if (isset($attributes)) { $__attributesOriginalbd5922df145d522b37bf664b524be380 = $attributes; } ?>
+<?php $component = App\View\Components\ConfirmationModal::resolve([] + (isset($attributes) && $attributes instanceof Illuminate\View\ComponentAttributeBag ? $attributes->all() : [])); ?>
+<?php $component->withName('confirmation-modal'); ?>
+<?php if ($component->shouldRender()): ?>
+<?php $__env->startComponent($component->resolveView(), $component->data()); ?>
+<?php if (isset($attributes) && $attributes instanceof Illuminate\View\ComponentAttributeBag): ?>
+<?php $attributes = $attributes->except(\App\View\Components\ConfirmationModal::ignoredParameterNames()); ?>
+<?php endif; ?>
+<?php $component->withAttributes([]); ?>
+<?php echo $__env->renderComponent(); ?>
+<?php endif; ?>
+<?php if (isset($__attributesOriginalbd5922df145d522b37bf664b524be380)): ?>
+<?php $attributes = $__attributesOriginalbd5922df145d522b37bf664b524be380; ?>
+<?php unset($__attributesOriginalbd5922df145d522b37bf664b524be380); ?>
+<?php endif; ?>
+<?php if (isset($__componentOriginalbd5922df145d522b37bf664b524be380)): ?>
+<?php $component = $__componentOriginalbd5922df145d522b37bf664b524be380; ?>
+<?php unset($__componentOriginalbd5922df145d522b37bf664b524be380); ?>
+<?php endif; ?>
+    <!-- Deposit Reject Modal -->
+    <div x-data="{ 
+            show: false, 
+            depositId: '', 
+            trx: '',
+            init() {
+                window.addEventListener('open-deposit-reject-modal', (e) => {
+                    this.depositId = e.detail.id;
+                    this.trx = e.detail.trx;
+                    this.show = true;
+                });
+            }
+        }" 
+        x-show="show" 
+        class="fixed inset-0 z-[100] flex items-center justify-center" 
+        x-cloak>
+        
+        <!-- Backdrop -->
+        <div x-show="show" 
+             x-transition:enter="transition ease-out duration-300"
+             x-transition:enter-start="opacity-0 backdrop-blur-0"
+             x-transition:enter-end="opacity-100 backdrop-blur-sm"
+             class="absolute inset-0 bg-black/60" 
+             @click="show = false"></div>
+
+        <!-- Modal Content -->
+        <div x-show="show" 
+             x-transition:enter="transition ease-out duration-300"
+             x-transition:enter-start="opacity-0 scale-95 translate-y-8"
+             x-transition:enter-end="opacity-100 scale-100 translate-y-0"
+             class="relative w-full max-w-md bg-white dark:bg-[#1a1a1a] rounded-[2rem] shadow-2xl border border-white/20 dark:border-white/10 overflow-hidden z-10 m-4">
+            
+            <form action="<?php echo e(route('admin.deposit.reject')); ?>" method="POST">
+                <?php echo csrf_field(); ?>
+                <input type="hidden" name="id" :value="depositId">
+                <!-- Header -->
+                <div class="h-24 bg-gradient-to-r from-rose-500 to-red-600 flex items-center px-8 relative overflow-hidden">
+                    <div class="absolute inset-0 bg-white/10 mix-blend-overlay"></div>
+                    <div class="relative z-10">
+                        <h3 class="text-xl font-black text-white uppercase tracking-tighter shadow-sm">Reject Payment</h3>
+                        <p class="text-[10px] font-bold text-white/80 uppercase tracking-widest mt-1">TRX: <span x-text="trx"></span></p>
+                    </div>
+                </div>
+
+                <!-- Body -->
+                <div class="p-8 space-y-6">
+                    <div class="space-y-3">
+                        <label class="text-[10px] font-black text-slate-400 dark:text-white/40 uppercase tracking-widest ml-2">Rejection Reason</label>
+                        <textarea name="message" required class="w-full h-32 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl p-4 text-xs font-bold text-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition-all" placeholder="Provide the reason for rejection..."></textarea>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="p-6 border-t border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-white/[0.02] flex gap-3">
+                    <button type="button" @click="show = false" class="flex-1 h-11 rounded-xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/60 text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 dark:hover:bg-white/10 transition-all ">
+                        Cancel
+                    </button>
+                    <button type="submit" class="flex-1 h-11 rounded-xl bg-rose-500 text-white text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 transition-all shadow-lg shadow-rose-500/20 active:scale-95 flex items-center justify-center gap-2">
+                        <span class="material-symbols-rounded text-sm">cancel</span> Reject
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+<?php $__env->stopSection(); ?>
+
+<?php $__env->startPush('breadcrumb-plugins'); ?>
+    <?php if(!request()->routeIs('admin.users.deposits') && !request()->routeIs('admin.users.deposits.method')): ?>
+        <?php if (isset($component)) { $__componentOriginale48b4598ffc2f41a085f001458a956d1 = $component; } ?>
+<?php if (isset($attributes)) { $__attributesOriginale48b4598ffc2f41a085f001458a956d1 = $attributes; } ?>
+<?php $component = Illuminate\View\AnonymousComponent::resolve(['view' => 'components.search-form','data' => ['dateSearch' => 'yes','placeholder' => 'Username / Email']] + (isset($attributes) && $attributes instanceof Illuminate\View\ComponentAttributeBag ? $attributes->all() : [])); ?>
+<?php $component->withName('search-form'); ?>
+<?php if ($component->shouldRender()): ?>
+<?php $__env->startComponent($component->resolveView(), $component->data()); ?>
+<?php if (isset($attributes) && $attributes instanceof Illuminate\View\ComponentAttributeBag): ?>
+<?php $attributes = $attributes->except(\Illuminate\View\AnonymousComponent::ignoredParameterNames()); ?>
+<?php endif; ?>
+<?php $component->withAttributes(['dateSearch' => 'yes','placeholder' => 'Username / Email']); ?>
+<?php echo $__env->renderComponent(); ?>
+<?php endif; ?>
+<?php if (isset($__attributesOriginale48b4598ffc2f41a085f001458a956d1)): ?>
+<?php $attributes = $__attributesOriginale48b4598ffc2f41a085f001458a956d1; ?>
+<?php unset($__attributesOriginale48b4598ffc2f41a085f001458a956d1); ?>
+<?php endif; ?>
+<?php if (isset($__componentOriginale48b4598ffc2f41a085f001458a956d1)): ?>
+<?php $component = $__componentOriginale48b4598ffc2f41a085f001458a956d1; ?>
+<?php unset($__componentOriginale48b4598ffc2f41a085f001458a956d1); ?>
+<?php endif; ?>
+    <?php endif; ?>
+<?php $__env->stopPush(); ?>
+
+
+<?php echo $__env->make('admin.layouts.app', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?><?php /**PATH C:\laragon\www\youtube-test(23-10-2026)\resources\views\admin\deposit\log.blade.php ENDPATH**/ ?>

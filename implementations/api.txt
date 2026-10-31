@@ -1,0 +1,172 @@
+╔══════════════════════════════════════════════════════════════╗
+║        API ARCHITECTURE PATTERN                             ║
+║     app/Http/Controllers/Api/ + app/Http/Resources/        ║
+╚══════════════════════════════════════════════════════════════╝
+
+══════════════════════════════════════════════════════════════
+  1. API CONTROLLERS (2 current + future growth)
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  Api/SearchController.php                              │
+  │    → suggestions(Request)  — Search autocomplete       │
+  │    → mentions(Request)     — @mention lookup           │
+  │    → Route: GET /api/search/suggestions                │
+  │    → Route: GET /api/search/mentions                   │
+  │    → Both defined in web.php (not api.php)             │
+  │    → Returns JSON directly (no Resources yet)          │
+  │                                                        │
+  │  Api/TicketHubController.php                           │
+  │    → getConversation($id) — Ticket messages            │
+  │    → Route: defined in web.php or api.php              │
+  │    → Returns JSON with ticket + messages               │
+  │    → Used by: Flutter app for support tickets          │
+  └─────────────────────────────────────────────────────────┘
+
+  ┌─ API AUTH (root level) ───────────────────────────────┐
+  │  ApiAuthController.php                                │
+  │    → login, register, googleLogin, logout             │
+  │    → Route: api.php (api/v1/auth prefix)              │
+  │    → Guard: sanctum (token-based)                     │
+  │    → Detailed in auth.txt                             │
+  └────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  2. API ROUTES (routes/api.php)
+══════════════════════════════════════════════════════════════
+
+  ┌─ PUBLIC ───────────────────────────────────────────────┐
+  │  POST /api/v1/auth/login          → ApiAuthController  │
+  │  POST /api/v1/auth/register       → ApiAuthController  │
+  │  POST /api/v1/auth/google-login   → ApiAuthController  │
+  │  GET  /api/v1/onboarding          → OnboardingController│
+  └─────────────────────────────────────────────────────────┘
+
+  ┌─ PROTECTED (auth:sanctum) ─────────────────────────────┐
+  │  POST /api/v1/auth/logout         → ApiAuthController  │
+  │  GET  /api/user                   → User (via Sanctum) │
+  └─────────────────────────────────────────────────────────┘
+
+  ┌─ WEB ROUTES (defined in web.php but return JSON) ──────┐
+  │  GET /api/search/suggestions    → Api\SearchController │
+  │  GET /api/search/mentions       → Api\SearchController │
+  │  POST /api/videos/{id}/impression → VideoController    │
+  │  POST /api/videos/{id}/ad-impression → VideoController │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  3. API RESOURCES (app/Http/Resources/)
+══════════════════════════════════════════════════════════════
+
+  ┌─ TO CREATE (via php artisan make:resource) ─────────────┐
+  │                                                        │
+  │  ProductResource.php         → Product model           │
+  │  VideoResource.php           → Video model             │
+  │  ReelResource.php            → Reel model              │
+  │  UserResource.php            → User model              │
+  │  ChannelResource.php         → Channel model           │
+  │  TicketResource.php          → SupportTicket model     │
+  │  CommentResource.php         → Comment model           │
+  │  PlaylistResource.php        → Playlist model          │
+  │  OrderResource.php           → Order model             │
+  │  PlanResource.php            → Plan model              │
+  │  OttPlanResource.php         → OttPlan model           │
+  │  MarketPlaceResource.php     → MarketPlace model       │
+  │  CategoryResource.php        → Category model          │
+  │  NotificationResource.php    → UserNotification        │
+  │                                                        │
+  └─────────────────────────────────────────────────────────┘
+
+  ┌─ RESOURCE TEMPLATE ────────────────────────────────────┐
+  │  <?php                                                  │
+  │  namespace App\Http\Resources;                          │
+  │  use Illuminate\Http\Resources\Json\JsonResource;       │
+  │                                                        │
+  │  class XxxResource extends JsonResource                 │
+  │  {                                                      │
+  │      public function toArray($request)                 │
+  │      {                                                  │
+  │          return [                                      │
+  │              'id' => $this->id,                        │
+  │              'name' => $this->name,                    │
+  │              'image' => getImage($this->image),         │
+  │              'status' => $this->status,                 │
+  │              'created_at' => $this->created_at,         │
+  │              'user' => new UserResource(                │
+  │                  $this->whenLoaded('user')              │
+  │              ),                                         │
+  │          ];                                             │
+  │      }                                                  │
+  │  }                                                      │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  4. API RESPONSE FORMAT
+══════════════════════════════════════════════════════════════
+
+  ┌─ SUCCESS ──────────────────────────────────────────────┐
+  │  {                                                      │
+  │    "status": "success",                                 │
+  │    "message": "Videos fetched successfully",            │
+  │    "data": { ... }                                     │
+  │  }                                                      │
+  └─────────────────────────────────────────────────────────┘
+
+  ┌─ ERROR ────────────────────────────────────────────────┐
+  │  {                                                      │
+  │    "status": "error",                                   │
+  │    "message": "Video not found",                        │
+  │    "errors": { ... }  // optional validation errors    │
+  │  }                                                      │
+  └─────────────────────────────────────────────────────────┘
+
+  ┌─ PAGINATED ────────────────────────────────────────────┐
+  │  {                                                      │
+  │    "status": "success",                                 │
+  │    "message": "Videos fetched",                         │
+  │    "data": [ ... ],                                    │
+  │    "meta": {                                           │
+  │      "current_page": 1,                                │
+  │      "last_page": 5,                                   │
+  │      "per_page": 20,                                   │
+  │      "total": 100                                      │
+  │    }                                                    │
+  │  }                                                      │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  5. API SERVICES TO CREATE
+══════════════════════════════════════════════════════════════
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  1. ApiSearchService.php   → app/Services/Api/         │
+  │     Methods: search, suggestions, mentions              │
+  │     Used by: Api\SearchController                      │
+  │                                                        │
+  │  2. ApiTicketService.php   → app/Services/Api/         │
+  │     Methods: getConversation, createTicket, reply       │
+  │     Used by: Api\TicketHubController                   │
+  │                                                        │
+  │  3. ApiAuthService.php     → app/Services/Api/         │
+  │     Methods: login, register, googleLogin, logout       │
+  │     Used by: ApiAuthController                         │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  ⚠  DO'S & DON'TS
+══════════════════════════════════════════════════════════════
+
+  ✅ DO's:
+  • Use Resources to transform DB data for Flutter app.
+  • Map DB column names to clean API keys in Resources.
+  • Use Sanctum for API token authentication.
+  • Return consistent JSON structure (status/message/data).
+  • Use whenLoaded() in Resources for eager-loaded relations.
+
+  ❌ DON'Ts:
+  • DON'T return Eloquent models directly from API controllers
+    — always use Resources to control the response shape.
+  • DON'T expose sensitive fields (password, tokens) in Resources.
+  • DON'T change API response format — Flutter app depends on it.
+  • DON'T remove Sanctum — it's the auth layer for mobile.
+  • DON'T mix web session auth with API token auth.

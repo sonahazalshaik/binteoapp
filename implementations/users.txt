@@ -1,0 +1,303 @@
+╔══════════════════════════════════════════════════════════════╗
+║         USER CONTROLLERS ARCHITECTURE PATTERN               ║
+║       app/Http/Controllers/User/*Controller.php             ║
+║       app/Models/User.php                                   ║
+╚══════════════════════════════════════════════════════════════╝
+
+══════════════════════════════════════════════════════════════
+  USER CONTROLLER → SERVICE → RESPONSE FLOW
+══════════════════════════════════════════════════════════════
+
+  Route (web.php — auth middleware)
+       │
+       ▼
+  User\Controller@method                  ← Handles request/response
+       │
+       │  ┌─ Auth: auth()->user() (always authenticated)
+       │  ├─ Validation: $request->validate()
+       │  ├─ Service: $this->userService->method(auth()->user(), $data)
+       │  └─ Notifications/AdminNotification as needed
+       │
+       ▼
+  App\Services\UserService                ← Business logic
+       │
+       │  ┌─ Operates on authenticated user
+       │  ├─ Updates user profiles, settings, balances
+       │  ├─ Manages transactions, KYC, withdrawals
+       │  └─ Returns arrays/collections or bool
+       │
+       ▼
+  Response: view(activeTemplate() . 'client.*', $data)
+            or redirect()->route() with ->withNotify($notify)
+            or response()->json()
+
+══════════════════════════════════════════════════════════════
+  STANDARD USER CONTROLLER TEMPLATE
+══════════════════════════════════════════════════════════════
+
+  <?php
+
+  namespace App\Http\Controllers\User;
+
+  use App\Constants\Status;
+  use App\Http\Controllers\Controller;
+  use App\Services\UserService;
+  use App\Services\TransactionService;
+  use Illuminate\Http\Request;
+
+  class XxxController extends Controller
+  {
+      protected UserService $userService;
+      protected TransactionService $transactionService;
+
+      public function __construct(
+          UserService $userService,
+          TransactionService $transactionService
+      ) {
+          $this->userService = $userService;
+          $this->transactionService = $transactionService;
+      }
+
+      public function index()
+      {
+          $pageTitle = 'Dashboard';
+          $user = auth()->user();
+          $data = $this->userService->getDashboardData($user);
+
+          return view(activeTemplate() . 'client.dashboard', array_merge(
+              compact('pageTitle', 'user'),
+              $data
+          ));
+      }
+
+      public function store(Request $request)
+      {
+          $request->validate([
+              'name' => 'required|string|max:255',
+              'value' => 'required|numeric',
+          ]);
+
+          $result = $this->userService->updateProfile(auth()->user(), $request->all());
+
+          if (!$result['success']) {
+              $notify[] = ['error', $result['message']];
+              return back()->withNotify($notify);
+          }
+
+          $notify[] = ['success', $result['message']];
+          return back()->withNotify($notify);
+      }
+
+      public function transactions()
+      {
+          $pageTitle = 'Transaction History';
+          $user = auth()->user();
+          $transactions = $this->transactionService->getUserTransactions($user);
+
+          return view(activeTemplate() . 'client.transactions', compact(
+              'pageTitle', 'transactions'
+          ));
+      }
+
+      public function notifications()
+      {
+          $pageTitle = 'Notifications';
+          $user = auth()->user();
+          $notifications = $this->userService->getNotifications($user);
+
+          return view(activeTemplate() . 'client.notifications', compact(
+              'pageTitle', 'notifications'
+          ));
+      }
+  }
+
+══════════════════════════════════════════════════════════════
+  USER SERVICE TEMPLATE
+══════════════════════════════════════════════════════════════
+
+  <?php
+
+  namespace App\Services;
+
+  use App\Models\User;
+  use App\Models\Transaction;
+  use App\Models\AdminNotification;
+  use Illuminate\Support\Facades\Hash;
+
+  class UserService
+  {
+      public function getDashboardData(User $user): array
+      {
+          return [
+              'total_views' => $user->videos()->sum('views_count'),
+              'total_earnings' => $user->transactions()
+                  ->where('trx_type', '+')
+                  ->sum('amount'),
+              'recent_activity' => $user->transactions()
+                  ->latest()->take(10)->get(),
+          ];
+      }
+
+      public function updateProfile(User $user, array $data): array
+      {
+          if (isset($data['password'])) {
+              $data['password'] = Hash::make($data['password']);
+          }
+
+          $user->update($data);
+
+          AdminNotification::create([
+              'user_id' => $user->id,
+              'title' => 'Profile updated by ' . $user->username,
+              'click_url' => urlPath('admin.users.detail', $user->id),
+          ]);
+
+          return ['success' => true, 'message' => 'Profile updated successfully'];
+      }
+
+      public function getNotifications(User $user)
+      {
+          return $user->userNotifications()->latest()->paginate(getPaginate());
+      }
+
+      public function updateFcmToken(User $user, string $token): void
+      {
+          \App\Models\FirebaseToken::updateOrCreate(
+              ['user_id' => $user->id],
+              ['token' => $token]
+          );
+      }
+  }
+
+══════════════════════════════════════════════════════════════
+  EXISTING USER CONTROLLERS (DO NOT TOUCH)
+══════════════════════════════════════════════════════════════
+
+  app/Http/Controllers/User/
+  ├── UserController.php       — monetization, KYC, earnings, transactions
+  ├── OttPlanController.php    — OTT plan management
+  ├── PlanController.php       — premium plans
+  ├── WithdrawController.php   — withdrawals
+  ├── AdvertiserController.php — advertiser dashboard
+
+  These controllers work fine. DO NOT move, rename, or refactor them.
+  The service pattern applies only to NEW user controllers.
+
+══════════════════════════════════════════════════════════════
+  USER-SPECIFIC PATTERNS
+══════════════════════════════════════════════════════════════
+
+  1. Always use auth()->user() at the start of each method
+  2. Always check auth()->check() before accessing user
+  3. User services receive the User model as first parameter
+  4. AdminNotification should be created for important changes
+  5. Transactions should be recorded for financial operations
+  6. Views use activeTemplate() . 'client.*' path
+  7. Notify pattern: $notify[] = ['type', 'message']; return back()->withNotify($notify);
+
+══════════════════════════════════════════════════════════════
+══════════════════════════════════════════════════════════════
+  USER (CLIENT) VIEW STRUCTURE (templates/basic/client/)
+══════════════════════════════════════════════════════════════
+
+  User controllers use activeTemplate() . 'client.*' for views:
+  ┌─────────────────────────────────────────────────────────┐
+  │  CONTROLLER METHOD          │ VIEW PATH                │
+  ├─────────────────────────────────────────────────────────┤
+  │  UserController@earnings    │ basic.client.earnings    │
+  │  UserController@transactions │ basic.client.transactions│
+  │  UserController@notifications│ basic.client.notifications│
+  │  UserController@kycForm     │ basic.client.kyc.form   │
+  │  UserController@kycData     │ basic.client.kyc.info   │
+  │  UserController@monetization│ basic.client.monetization│
+  │  PlanController@index       │ basic.client.plans.index│
+  │  PlanController@ott         │ basic.premium           │
+  │  OttPlanController@index    │ basic.client.*          │
+  │  WithdrawController@index   │ basic.client.withdraw.*│
+  │  AdvertiserController@index │ basic.client.advertiser.*│
+  └─────────────────────────────────────────────────────────┘
+
+  resources/views/templates/basic/client/
+  ├── studio/              → Creator dashboard
+  ├── earnings.blade.php   → Earning reports
+  ├── transactions.blade.php → Transaction history
+  ├── notifications.blade.php → Notifications list
+  ├── wallet.blade.php     → Wallet balance
+  ├── kyc/                 → KYC forms
+  │   ├── form.blade.php   → KYC application
+  │   ├── info.blade.php   → KYC status
+  │   └── bank_edit.blade.php → Bank details
+  ├── deposit/             → Deposit history
+  ├── withdraw/            → Withdrawal management
+  ├── ticket/              → Support tickets
+  ├── plans/               → Purchased plans
+  ├── playlists/           → Purchased playlists
+  ├── settings/            → Account settings
+  ├── advertiser/          → Advertiser dashboard
+  ├── ads/                 → Ad management
+  ├── monetization/        → Monetization center
+  └── videos/              → Purchased/uploaded videos
+
+══════════════════════════════════════════════════════════════
+══════════════════════════════════════════════════════════════
+  USER SERVICE CREATION PLAN (5 controllers → services)
+══════════════════════════════════════════════════════════════
+
+  Current: 0 user-specific services in app/Services/
+  Need:    Create these 5 service files in app/Services/:
+
+  ╔══════════════════════════════════════════════════════════╗
+  ║  USER SERVICES TO CREATE                                ║
+  ╚══════════════════════════════════════════════════════════╝
+
+  1. UserProfileService.php     ← UserController
+     Methods: getDashboardData, updateProfile, getNotifications,
+              updateFcmToken, saveConsent, checkKycAvailability
+
+  2. UserKycService.php         ← UserController (KYC methods)
+     Methods: submitKyc, getKycForm, getKycData, updateBankDetails
+
+  3. UserPlanService.php        ← PlanController + OttPlanController
+     Methods: getPlans, buyPlan, verifyPayment, getPremiumVideos,
+              hasOttAccess, getSubscriptions
+
+  4. UserWithdrawService.php    ← WithdrawController
+     Methods: getMethods, submitWithdraw, getHistory, cancelWithdraw
+
+  5. UserAdvertiserService.php  ← AdvertiserController
+     Methods: getDashboard, getCampaigns, getAdHistory, getEarnings
+
+  ╔══════════════════════════════════════════════════════════╗
+  ║  SUMMARY                                                ║
+  ╚══════════════════════════════════════════════════════════╝
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  Total User Controllers:  5                             │
+  │  Services to create:       5                            │
+  │  (1 per controller)                                     │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  ⚠  DO'S & DON'TS
+══════════════════════════════════════════════════════════════
+
+  ✅ DO's:
+  • Keep existing User controllers (UserController, OttPlanController,
+    PlanController, WithdrawController, AdvertiserController)
+    exactly as they are — they have working KYC, monetization,
+    and transaction logic.
+  • Apply the User service pattern ONLY to brand-new user controllers.
+  • Always pass auth()->user() as first param to user services.
+  • Create AdminNotification for important user actions.
+  • Record Transaction for all financial operations.
+  • Use activeTemplate() . 'client.*' for view paths.
+  • Use ->withNotify($notify) for success/error messages.
+
+  ❌ DON'Ts:
+  • DON'T move existing User controllers out of Controllers/User/.
+  • DON'T rename existing User controller namespaces or classes.
+  • DON'T extract logic from existing working controllers into
+    services — they are already functional.
+  • DON'T change the KYC submission flow — it's complex and tested.
+  • DON'T modify existing routes pointing to User controllers.
+  • DON'T alter existing model relationships used by User controllers.

@@ -1,0 +1,445 @@
+╔══════════════════════════════════════════════════════════════╗
+║        VIEW ARCHITECTURE — Controller → View Flow          ║
+║     resources/views/ — Full Blade Structure Reference      ║
+╚══════════════════════════════════════════════════════════════╝
+
+══════════════════════════════════════════════════════════════
+  1. CONTROLLER → VIEW REFERENCE MAP
+══════════════════════════════════════════════════════════════
+
+  ┌──────────────────────────────────────────────────────────┐
+  │  Controller Location       │  View Path Pattern          │
+  ├──────────────────────────────────────────────────────────┤
+  │  Root (VideoController)    │  activeTemplate().'videos.*'│
+  │  Root (HomeController)     │  activeTemplate().'index'   │
+  │  Admin (Admin\*)           │  'admin.*'                  │
+  │  User (User\*)             │  activeTemplate().'client.*'│
+  │  Studio (StudioController) │  activeTemplate().'studio.*'│
+  │  Auth (Auth\*)             │  'auth.*'                   │
+  │  Marketplace               │  activeTemplate().'marketplace.*'│
+  └──────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  2. VIEW DIRECTORY MAP (resources/views/)
+══════════════════════════════════════════════════════════════
+
+  resources/views/
+  ├── admin/                   → Admin panel (52 subdirs)
+  │   ├── layouts/
+  │   │   ├── master.blade.php → OLD Bootstrap 5 layout
+  │   │   └── app.blade.php    → NEW Tailwind layout
+  │   ├── partials/
+  │   │   ├── sidenav.blade.php
+  │   │   ├── navbar.blade.php
+  │   │   └── breadcrumb.blade.php
+  │   ├── dashboard.blade.php
+  │   ├── videos/              → Admin Video CRUD
+  │   ├── users/               → Admin User management
+  │   ├── channels/            → Admin Channel management
+  │   ├── reels/               → Admin Reel management
+  │   ├── marketplace/         → Admin Marketplace mgmt
+  │   ├── security/            → Security/IP/Strikes
+  │   ├── moderation/          → Reports/Appeals/Strikes
+  │   ├── monetization/        → Monetization settings
+  │   ├── plans/               → Plan management
+  │   ├── ott_plans/           → OTT plan management
+  │   ├── banners/             → Banner ads
+  │   ├── deposit/             → Deposit management
+  │   ├── withdraw/            → Withdrawal management
+  │   ├── support/             → Support tickets
+  │   ├── kyc/                 → KYC management
+  │   ├── language/            → Translations
+  │   ├── notification/        → Email/SMS/Push templates
+  │   ├── setting/             → General/Site settings
+  │   ├── frontend/            → SEO/Frontend sections
+  │   ├── analytics/           → Analytics dashboards
+  │   ├── growth/              → Growth metrics
+  │   ├── processing/          → Video processing jobs
+  │   ├── cron/                → Cron management
+  │   └── ... (40+ more)
+  │
+  ├── templates/
+  │   └── basic/               → Frontend theme (switchable)
+  │       ├── index.blade.php  → Homepage
+  │       ├── videos/          → Video pages (show, create, history, liked, watch_later)
+  │       ├── reels/           → Reels (index, show, create, audio)
+  │       ├── channels/        → Channel pages
+  │       ├── playlists/       → Playlist pages
+  │       ├── plans/           → Subscription plans
+  │       ├── search.blade.php → Search results
+  │       ├── trending.blade.php
+  │       ├── premium*.blade.php
+  │       ├── ott.blade.php
+  │       ├── embed_video.blade.php
+  │       ├── pages.blade.php  → Static pages
+  │       ├── policy.blade.php → Privacy/Terms
+  │       ├── client/          → User dashboard (18 subdirs)
+  │       │   ├── studio/      → Creator Studio
+  │       │   ├── earnings/    → Earnings page
+  │       │   ├── kyc/         → KYC forms
+  │       │   ├── wallet/      → Wallet
+  │       │   ├── transactions/→ Transactions
+  │       │   ├── deposit/     → Deposit history
+  │       │   ├── ticket/      → Support tickets
+  │       │   ├── withdraw/    → Withdrawals
+  │       │   ├── plans/       → User plans
+  │       │   ├── playlists/   → Purchased playlists
+  │       │   ├── notifications/
+  │       │   ├── settings/    → Account settings
+  │       │   ├── advertiser/  → Advertiser dashboard
+  │       │   └── ads/         → Ad management
+  │       ├── marketplace/     → Talent marketplace
+  │       ├── studio/          → Creator studio alternative
+  │       ├── live/            → Live streaming
+  │       ├── payment/         → Payment pages
+  │       └── partials/        → Shared partials
+  │           ├── video_card.blade.php
+  │           ├── video_card_list.blade.php
+  │           ├── reel_card.blade.php
+  │           ├── comment_item.blade.php
+  │           ├── related_videos.blade.php
+  │           ├── playlist_item.blade.php
+  │           ├── playlist_player_panel.blade.php
+  │           ├── banner_carousel.blade.php
+  │           ├── channel_card_small.blade.php
+  │           ├── creator_card_small.blade.php
+  │           ├── studio_sidebar.blade.php
+  │           └── studio_sidebar_item.blade.php
+  │
+  ├── layouts/                 → App shell layouts
+  │   ├── app.blade.php        → Main site layout (2241 lines)
+  │   ├── admin.blade.php      → Admin layout
+  │   ├── guest.blade.php      → Guest layout
+  │   ├── header.blade.php
+  │   ├── footer.blade.php
+  │   ├── navigation.blade.php → Top nav with search/user menu
+  │   ├── sidebar.blade.php    → Desktop sidebar
+  │   ├── bottom-nav.blade.php → Mobile bottom nav
+  │   └── partials/
+  │       └── sidebar-content.blade.php
+  │
+  ├── components/              → Blade X-components (39)
+  │   ├── app-layout.blade.php
+  │   ├── admin-layout.blade.php
+  │   ├── guest-layout.blade.php
+  │   ├── video-card.blade.php
+  │   ├── modal.blade.php
+  │   ├── form-generator.blade.php
+  │   ├── widget-1..7.blade.php
+  │   └── ... (30+ more)
+  │
+  ├── partials/                → Global partials
+  │   ├── notify.blade.php     → Flash notification rendering
+  │   ├── captcha.blade.php
+  │   ├── pwa.blade.php
+  │   ├── firebase_script.blade.php
+  │   ├── firebase_admin_script.blade.php
+  │   └── global_mini_player.blade.php
+  │
+  ├── auth/                    → Auth pages
+  │   ├── login.blade.php
+  │   ├── register.blade.php
+  │   ├── forgot-password.blade.php
+  │   ├── reset-password.blade.php
+  │   ├── confirm-password.blade.php
+  │   └── verify-email.blade.php
+  │
+  └── emails/                  → Email templates (10)
+      ├── video_purchase.blade.php
+      ├── plan_purchase.blade.php
+      ├── ott_plan_purchase.blade.php
+      ├── password_reset.blade.php
+      ├── user_welcome.blade.php
+      ├── channel_creation.blade.php
+      ├── marketplace_*.blade.php
+      └── monetization_approval.blade.php
+
+══════════════════════════════════════════════════════════════
+  3. LAYOUT INHERITANCE CHAIN
+══════════════════════════════════════════════════════════════
+
+  ┌─ FRONTEND (public site) ──────────────────────────────┐
+  │                                                        │
+  │  View file (e.g., templates/basic/videos/show.blade)   │
+  │    ↓ @extends('layouts.app')                           │
+  │  layouts/app.blade.php                                 │
+  │    ↓ @include                                          │
+  │  ├── layouts/navigation.blade.php  (top navbar)        │
+  │  ├── layouts/sidebar.blade.php     (desktop sidebar)   │
+  │  ├── {{ $slot }} / @yield('content') (page content)   │
+  │  ├── layouts/footer.blade.php      (site footer)       │
+  │  └── layouts/bottom-nav.blade.php  (mobile nav)       │
+  │                                                        │
+  │  Some views use:                                       │
+  │  <x-app-layout> ... </x-app-layout>                    │
+  │  (components/app-layout.blade.php → layouts/app)      │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+  ┌─ ADMIN ────────────────────────────────────────────────┐
+  │                                                        │
+  │  View file (e.g., admin/videos/index.blade)            │
+  │    ↓ @extends('admin.layouts.master')  (OLD Bootstrap)│
+  │  admin/layouts/master.blade.php                        │
+  │    ↓ @include                                          │
+  │  ├── admin/partials/sidenav.blade.php                  │
+  │  ├── admin/partials/topnav.blade.php                   │
+  │  ├── @yield('content')                                 │
+  │  └── admin/partials/footer (if any)                   │
+  │                                                        │
+  │  OR (NEW Tailwind layout):                             │
+  │    @extends('admin.layouts.app')                       │
+  │  admin/layouts/app.blade.php                           │
+  │    (Tailwind CSS + Alpine.js, dark mode, custom)       │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+  ┌─ AUTH (guest-only) ───────────────────────────────────┐
+  │                                                        │
+  │  View file (e.g., auth/login.blade)                    │
+  │    ↓ @extends('layouts.guest')                         │
+  │  layouts/guest.blade.php                               │
+  │  (minimal layout, no sidebar/footer)                   │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  4. HOW CONTROLLERS REFERENCE VIEWS
+══════════════════════════════════════════════════════════════
+
+  ┌─ FRONTEND CONTROLLERS ─────────────────────────────────┐
+  │                                                        │
+  │  // activeTemplate() returns: 'templates.basic.'       │
+  │  // Or: 'templates.theme2.' (if template switching)    │
+  │                                                        │
+  │  return view(activeTemplate() . 'videos.show',         │
+  │      compact('video', 'relatedVideos'));               │
+  │  // → resources/views/templates/basic/videos/show.blade│
+  │                                                        │
+  │  return view(activeTemplate() . 'client.earnings',     │
+  │      compact('user', 'totalEarnings'));                │
+  │  // → resources/views/templates/basic/client/          │
+  │  //        earnings.blade.php                          │
+  │                                                        │
+  │  return view(activeTemplate() . 'marketplace.index',   │
+  │      compact('talents'));                              │
+  │  // → resources/views/templates/basic/marketplace/     │
+  │  //        index.blade.php                             │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+  ┌─ ADMIN CONTROLLERS ────────────────────────────────────┐
+  │                                                        │
+  │  // NO activeTemplate() — admin is fixed path          │
+  │                                                        │
+  │  return view('admin.dashboard', compact(               │
+  │      'pageTitle', 'widget', 'chart'));                 │
+  │  // → resources/views/admin/dashboard.blade.php        │
+  │                                                        │
+  │  return view('admin.videos.index', compact(            │
+  │      'pageTitle', 'videos'));                          │
+  │  // → resources/views/admin/videos/index.blade.php     │
+  │                                                        │
+  │  return view('admin.users.detail', compact(            │
+  │      'pageTitle', 'user'));                            │
+  │  // → resources/views/admin/users/detail.blade.php     │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+  ┌─ USER (CLIENT DASHBOARD) CONTROLLERS ─────────────────┐
+  │                                                        │
+  │  // Uses activeTemplate() like frontend                │
+  │                                                        │
+  │  return view(activeTemplate() . 'client.transactions', │
+  │      compact('pageTitle', 'transactions'));            │
+  │  // → resources/views/templates/basic/client/          │
+  │  //        transactions.blade.php                      │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  5. VIEW DATA PATTERNS
+══════════════════════════════════════════════════════════════
+
+  ┌─ COMMON VARIABLES EVERY CONTROLLER PASSES ────────────┐
+  │                                                        │
+  │  $pageTitle — Always passed for <title> tag           │
+  │  $general   — GeneralSetting (via gs() helper in view)│
+  │  $user      — auth()->user() (when authenticated)     │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+  ┌─ FLASH NOTIFICATIONS ──────────────────────────────────┐
+  │                                                        │
+  │  // Controller sets:                                   │
+  │  $notify[] = ['success', 'Video uploaded successfully'];│
+  │  return redirect()->route('...')->withNotify($notify); │
+  │                                                        │
+  │  // View renders (via partials/notify.blade.php):      │
+  │  @include('partials.notify')                           │
+  │  // This is included in layouts/app.blade.php          │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+  ┌─ PAGINATION ──────────────────────────────────────────┐
+  │                                                        │
+  │  // Controller:                                       │
+  │  $videos = Video::paginate(getPaginate());            │
+  │                                                        │
+  │  // View:                                             │
+  │  {{ $videos->links() }}                               │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+  ┌─ PASSING DATA TO VIEWS ───────────────────────────────┐
+  │                                                        │
+  │  // Method 1: compact()                                │
+  │  return view('path', compact('var1', 'var2'));         │
+  │                                                        │
+  │  // Method 2: with()                                   │
+  │  return view('path')->with('key', $value);             │
+  │                                                        │
+  │  // Method 3: array_merge (common data pattern)        │
+  │  $common = $this->settingService->getSeo();           │
+  │  return view('path', array_merge($data, $common));    │
+  │                                                        │
+  └────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  6. NEW WEB/ CONTROLLER VIEW PATTERN
+══════════════════════════════════════════════════════════════
+
+  For new controllers created in app/Http/Controllers/Web/:
+
+  ┌─ CONTROLLER ──────────────────────────────────────────┐
+  │  class ProductController extends Controller            │
+  │  {                                                      │
+  │      public function index()                           │
+  │      {                                                  │
+  │          $pageTitle = 'Products';                       │
+  │          $products = $this->productService->getAll();   │
+  │          return view(activeTemplate() . 'products.index',│
+  │              compact('pageTitle', 'products'));         │
+  │      }                                                  │
+  │  }                                                      │
+  └────────────────────────────────────────────────────────┘
+
+  ┌─ VIEW (templates/basic/products/index.blade.php) ─────┐
+  │  @extends('layouts.app')                                │
+  │  @section('title', $pageTitle)                         │
+  │  @section('content')                                    │
+  │      <x-page-title :title="$pageTitle" />               │
+  │      @foreach($products as $product)                   │
+  │          @include('partials.product_card')             │
+  │      @endforeach                                        │
+  │      {{ $products->links() }}                           │
+  │  @endsection                                            │
+  └────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  7. COMPLETE MODULE → CONTROLLER → VIEW MAP
+══════════════════════════════════════════════════════════════
+
+  ┌────────────────────────────────────────────────────────┐
+  │  MODULE          │ CONTROLLER          │ VIEW PATH     │
+  ├────────────────────────────────────────────────────────┤
+  │  Homepage        │ HomeController      │ basic.index   │
+  │  Video Watch     │ VideoController     │ basic.videos.*│
+  │  Reels           │ ReelController      │ basic.reels.* │
+  │  Channels        │ ChannelController   │ basic.channels.*│
+  │  Search          │ SearchController    │ basic.search  │
+  │  Playlists       │ PlaylistController  │ basic.playlists.*│
+  │  Trending        │ VideoController     │ basic.trending│
+  │  Premium/OTT     │ PlanController      │ basic.premium*│
+  │  Live Stream     │ LiveStreamController│ basic.live.*  │
+  │  Studio          │ StudioController    │ basic.studio.*│
+  │  Studio Analytics│ StudioAnalyticsCtrl │ basic.studio.*│
+  │  User Dashboard  │ User\UserController │ basic.client.*│
+  │  User KYC        │ User\UserController │ basic.client.kyc.*│
+  │  User Plans      │ User\PlanController │ basic.client.plans.*│
+  │  User OTT Plans  │ User\OttPlanCtrl    │ basic.client.*│
+  │  User Withdraw   │ User\WithdrawCtrl   │ basic.client.withdraw.*│
+  │  User Advertiser │ User\AdvertiserCtrl │ basic.client.advertiser.*│
+  │  User Tickets    │ TicketController    │ basic.client.ticket.*│
+  │  Marketplace     │ MarketPlaceCtrl     │ basic.marketplace.*│
+  │  Admin Dashboard │ Admin\DashboardCtrl │ admin.dashboard│
+  │  Admin Videos    │ Admin\VideoCtrl     │ admin.videos.*│
+  │  Admin Users     │ Admin\UserCtrl      │ admin.users.*│
+  │  Admin Channels  │ Admin\ChannelCtrl   │ admin.channels.*│
+  │  Admin Reels     │ Admin\ManageReelCtrl│ admin.reels.*│
+  │  Admin Comments  │ Admin\CommentCtrl   │ admin.comments.*│
+  │  Admin Plans     │ Admin\PlanCtrl      │ admin.plans.*│
+  │  Admin Settings  │ Admin\SettingCtrl   │ admin.setting.*│
+  │  Admin Analytics │ Admin\AnalyticsCtrl │ admin.analytics.*│
+  │  Admin KYC       │ Admin\KycCtrl       │ admin.kyc.*│
+  │  Admin Support   │ Admin\SupportTicketCtrl│ admin.support.*│
+  │  Admin Security  │ Admin\SecurityCtrl  │ admin.security.*│
+  │  Admin Gateway   │ Admin\AutomaticGatewayCtrl│ admin.gateways.*│
+  │  Admin Deposit   │ Admin\DepositCtrl   │ admin.deposit.*│
+  │  Admin Withdraw  │ Admin\WithdrawalCtrl│ admin.withdraw.*│
+  │  Admin Language  │ Admin\LanguageCtrl  │ admin.language.*│
+  │  Admin Frontend  │ Admin\FrontendCtrl  │ admin.frontend.*│
+  │  Admin Marktplce │ Admin\MarketCtrl    │ admin.marketplace.*│
+  │  Admin Cron      │ Admin\CronConfigCtrl│ admin.cron.*│
+  └────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  8. COMMON BLADE COMPONENTS REFERENCE
+══════════════════════════════════════════════════════════════
+
+  ┌─ LAYOUT COMPONENTS ───────────────────────────────────┐
+  │  <x-app-layout>       → layouts/app.blade.php          │
+  │  <x-admin-layout>     → admin layout wrapper          │
+  │  <x-guest-layout>     → layouts/guest.blade.php       │
+  └────────────────────────────────────────────────────────┘
+
+  ┌─ UI COMPONENTS ───────────────────────────────────────┐
+  │  <x-modal>            → Bootstrap/JS modal            │
+  │  <x-confirmation-modal> → Confirm action dialog       │
+  │  <x-input-label>      → <label> tag                   │
+  │  <x-text-input>       → <input> tag                   │
+  │  <x-textarea>         → <textarea> tag               │
+  │  <x-select>           → <select> tag                  │
+  │  <x-input-error>      → Validation error display      │
+  │  <x-primary-button>   → Primary button                │
+  │  <x-secondary-button> → Secondary button              │
+  │  <x-danger-button>    → Delete/danger button          │
+  │  <x-dropdown>         → Dropdown menu                 │
+  │  <x-nav-link>         → Navigation link               │
+  │  <x-video-card>       → Video card (homepage grid)    │
+  │  <x-video-card>       → Video card                    │
+  │  <x-widget-1..7>      → Dashboard stat widgets        │
+  │  <x-application-logo> → Site logo                     │
+  │  <x-viser-form>       → Dynamic form renderer         │
+  │  <x-form-generator>   → Form builder modal            │
+  │  <x-image-uploader>   → Image upload UI               │
+  └────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  ⚠  DO'S & DON'TS (VIEWS)
+══════════════════════════════════════════════════════════════
+
+  ✅ DO's:
+  • Use activeTemplate() for ALL frontend view paths —
+    this enables theme switching without code changes.
+  • Use @extends('layouts.app') for public pages.
+  • Use @extends('admin.layouts.master') or ('admin.layouts.app')
+    for admin pages — master is Bootstrap, app is Tailwind.
+  • Use @extends('layouts.guest') for login/register.
+  • Include 'partials.notify' in layouts to show flash messages.
+  • Use <x-app-layout> component syntax as alternative to @extends.
+  • Pass $pageTitle to every view for the <title> tag.
+  • Use compact() or array_merge() consistently for data passing.
+
+  ❌ DON'Ts:
+  • DON'T use activeTemplate() for admin views — admin path is fixed.
+  • DON'T hardcode 'templates.basic.' — always use activeTemplate().
+  • DON'T create new views outside templates/basic/ for frontend.
+  • DON'T create new views outside admin/ for admin panel.
+  • DON'T remove @include('partials.notify') from layouts — it
+    renders all flash messages.
+  • DON'T mix old Bootstrap admin layout (master) with new Tailwind
+    layout (app) in the same controller group.
+  • DON'T forget to pass variables to views — undefined variables
+    will silently fail in Blade.
+  • DON'T use dd() or dump() in views — remove debug before commit.

@@ -1,0 +1,2 @@
+<?php echo $__env->make('frontend.user.studio.channel_plans', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
+<?php /**PATH C:\laragon\www\youtube-test(23-10-2026)\resources\views\frontend\studio\channel_plans.blade.php ENDPATH**/ ?>

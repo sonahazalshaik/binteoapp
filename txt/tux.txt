@@ -1,0 +1,604 @@
+# BINTEO FINAL UPLOAD STABILITY FIX
+
+I want you to implement the upload fixes based on the investigation report you generated.
+
+IMPORTANT:
+Do NOT redesign the upload architecture.
+Do NOT rollback the whole upload system.
+Do NOT remove TUS.
+Do NOT remove chunking.
+Do NOT change QUEUE_CONNECTION as part of this fix.
+Do NOT introduce Redis, Horizon, Supervisor, or another queue server.
+
+The goal is to make the CURRENT upload system reliable while preserving its architecture.
+
+==================================================
+1. KEEP CURRENT ARCHITECTURE
+==================================================
+
+Keep:
+
+Browser
+   ↓
+TUS
+   ↓
+/tus-proxy
+   ↓
+Bunny CDN
+   ↓
+Bunny processing
+
+Do NOT switch back to direct Browser → Bunny at this stage.
+
+The previous direct Bunny implementation had Android Chrome CORS issues, so solve the current implementation rather than bringing that problem back.
+
+==================================================
+2. KEEP TUS CHUNKING
+==================================================
+
+Do NOT remove TUS chunking.
+
+Keep the current chunked upload implementation.
+
+Initially keep:
+
+chunkSize: 2 * 1024 * 1024
+
+Do NOT change the chunk size in the same implementation pass.
+
+We may test 5 MB later as a separate experiment, but first make the current 2 MB implementation reliable.
+
+Do NOT convert the upload to one huge request.
+
+==================================================
+3. FIX SAME-FILE RESELECTION
+==================================================
+
+Verify the actual onVideoChange() implementation in:
+
+resources/views/frontend/videos/create.blade.php
+resources/views/frontend/reels/create.blade.php
+
+Make sure the file input is reset correctly so the user can select the exact same file again.
+
+Use the appropriate:
+
+event.target.value = '';
+
+or equivalent reset logic.
+
+Test:
+
+Select A
+→ Remove/cancel A
+→ Select A again
+→ Upload should start.
+
+Do not only fix removeVideo().
+The actual file-change handler must support same-file re-selection.
+
+==================================================
+4. PREVENT DUPLICATE UPLOAD STARTS
+==================================================
+
+Make sure startUpload() cannot run concurrently for the same upload attempt.
+
+Prevent:
+
+startUpload()
+startUpload()
+startUpload()
+
+from creating multiple upload attempts.
+
+Use a clear upload-state guard.
+
+The guard must be reset correctly after:
+
+- successful upload
+- controlled failure
+- cancellation/reset
+
+Do not accidentally prevent the user from starting a completely new upload after the previous upload has finished or failed.
+
+==================================================
+5. NEW UPLOAD MUST ALWAYS GET NEW BUNNY ID
+==================================================
+
+This is extremely important.
+
+When the user uploads:
+
+Video A #1
+
+and Bunny is processing it, then uploads:
+
+Video A #2
+
+the second upload MUST be independent.
+
+Expected:
+
+Video A #1
+→ Local record #1
+→ Bunny GUID 111
+→ TUS upload session 111
+
+Video A #2
+→ Local record #2
+→ Bunny GUID 222
+→ TUS upload session 222
+
+Do NOT reuse:
+
+- previous Bunny GUID
+- previous TUS upload URL
+- previous TUS upload ID
+- previous Upload-Offset
+- previous upload object
+- previous fingerprint
+- previous upload state
+
+Same filename must NOT mean same upload.
+
+Verify this in:
+
+app/Http/Controllers/Web/BunnyUploadController.php
+app/Services/Frontend/UploadService.php
+app/Services/BunnyStreamService.php
+
+and the frontend upload state.
+
+==================================================
+6. TUS FINGERPRINT
+==================================================
+
+Verify the current fingerprint behavior.
+
+The current system should create a fresh upload attempt for every new upload.
+
+Preserve:
+
+storeFingerprintForResuming: false
+
+if that is already the current intended configuration.
+
+Do not allow the second upload of the same file to accidentally resume/reuse the first upload.
+
+==================================================
+7. FIX 409 OFFSET HANDLING
+==================================================
+
+Keep the new offset-aware 409 recovery.
+
+Do NOT restore the old behavior that blindly resends the entire chunk using Bunny's offset.
+
+The correct behavior should be:
+
+PATCH
+→ Bunny returns 409
+→ HEAD Bunny upload
+→ read Upload-Offset
+→ validate offset
+→ compare with client offset
+→ retry only the required data
+→ continue upload
+
+Handle these cases:
+
+CASE A:
+Bunny offset == client offset
+
+→ retry the current chunk normally.
+
+CASE B:
+Bunny offset > client offset but still within the current chunk
+
+→ send only the remaining part of the chunk.
+
+CASE C:
+Bunny offset >= end of current chunk
+
+→ consider that chunk already stored and continue to the next chunk.
+
+==================================================
+8. BOUNDED RETRIES
+==================================================
+
+There must NEVER be an infinite 409 retry loop.
+
+Use a strict maximum number of offset-recovery attempts per PATCH.
+
+Use something reasonable such as:
+
+MAX_OFFSET_RECOVERY_ATTEMPTS = 2 or 3
+
+After the limit:
+
+- stop retrying
+- log the failure
+- return a controlled error
+- allow the existing fallback/error handling where appropriate
+
+Do NOT create another Bunny video just because a PATCH receives 409.
+
+==================================================
+9. VALIDATE BUNNY Upload-Offset
+==================================================
+
+When performing HEAD recovery, validate:
+
+Upload-Offset exists
+Upload-Offset is numeric
+Upload-Offset is an integer
+Upload-Offset >= 0
+Upload-Offset <= Upload-Length where known
+
+If Bunny returns a suspicious value such as:
+
+Upload-Offset: 2
+
+DO NOT blindly retry forever.
+
+Log the value and the related upload information.
+
+Do not assume that "2" is valid or invalid without examining the actual upload state.
+
+==================================================
+10. STRUCTURED TUS LOGGING
+==================================================
+
+Add useful structured logging around TUS failures and 409 recovery.
+
+Log:
+
+- user_id
+- local video/reel ID
+- Bunny video GUID
+- TUS upload ID/URL where safe
+- HTTP method
+- client offset
+- Bunny offset
+- chunk length
+- upload length where available
+- HTTP status
+- retry count
+
+Example:
+
+TUS PATCH
+video_id=123
+bunny_id=abc
+client_offset=2097152
+chunk_length=2097152
+status=409
+retry=1
+
+Then:
+
+TUS HEAD RECOVERY
+video_id=123
+bunny_id=abc
+bunny_offset=2097152
+client_offset=2097152
+retry=1
+
+IMPORTANT:
+Never log Bunny API keys, secrets, signatures, tokens, passwords, or other credentials.
+
+==================================================
+11. INVESTIGATE Upload-Offset: 2
+==================================================
+
+Do not simply hide the previous Upload-Offset: 2 problem with retries.
+
+Make sure logging lets us determine where the value came from.
+
+Trace:
+
+Browser offset
+→ proxy request
+→ Bunny PATCH
+→ Bunny response
+→ proxy response
+→ frontend
+
+If Bunny returns the value, log it.
+
+If the proxy modifies it, fix the proxy.
+
+If the frontend is sending an incorrect offset, fix the frontend.
+
+The objective is to identify the real source.
+
+==================================================
+12. CSRF / TUS PROXY
+==================================================
+
+Verify that the current /tus-proxy endpoint no longer incorrectly returns 419.
+
+The report identified a CSRF mismatch around:
+
+POST /tus-proxy
+
+Verify that the actual route path is correctly excluded/configured.
+
+Test:
+
+POST /tus-proxy
+PATCH /tus-proxy/{uploadId}
+HEAD /tus-proxy/{uploadId}
+
+Do not weaken CSRF protection globally.
+
+Only configure the required TUS endpoint correctly.
+
+==================================================
+13. PRESERVE SERVER-SIDE FALLBACK
+==================================================
+
+Do NOT remove DirectUploadController or the existing direct-upload fallback.
+
+Keep it available as a fallback.
+
+However, normal uploads must continue using:
+
+Browser → TUS → /tus-proxy → Bunny
+
+Do not make the server-side fallback the primary path unless the existing code already requires that behavior.
+
+==================================================
+14. QUEUE CONFIGURATION
+==================================================
+
+Do NOT change:
+
+QUEUE_CONNECTION
+
+The current project uses:
+
+QUEUE_CONNECTION=database
+
+Keep it unchanged.
+
+Do NOT change it to:
+
+QUEUE_CONNECTION=sync
+
+for this upload fix.
+
+Do NOT add:
+
+- Redis
+- Horizon
+- Supervisor
+- RabbitMQ
+- queue workers
+
+The TUS upload itself must not depend on Laravel queues.
+
+Queue configuration is a separate concern from the TUS upload transport.
+
+==================================================
+15. DO NOT MODIFY VIDEO PROCESSING
+==================================================
+
+Do not change unrelated:
+
+- ProcessVideo
+- CompressReel
+- FFmpeg
+- HLS
+- thumbnails
+- monetization
+- watchtime
+- creator earnings
+- Razorpay
+- authentication
+- authorization
+
+unless a change is absolutely required to prevent an upload regression.
+
+==================================================
+16. CACHE BUSTING
+==================================================
+
+Verify the TUS JavaScript asset is not being served from an outdated browser cache.
+
+The current hardcoded:
+
+?v=2
+
+should be replaced with reliable project asset versioning if appropriate.
+
+Do not load multiple conflicting versions of tus-js-client.
+
+Verify the actual version loaded by the browser.
+
+==================================================
+17. IMPORTANT: DO NOT CHANGE CHUNK SIZE YET
+==================================================
+
+Keep:
+
+chunkSize: 2 * 1024 * 1024
+
+for this implementation.
+
+Do NOT simultaneously test 5 MB or 10 MB.
+
+After the fixes are implemented and tested, we can separately test:
+
+5 MB
+10 MB
+
+if proxy overhead remains a concern.
+
+This is important because we need to change ONE variable at a time when diagnosing the upload problem.
+
+==================================================
+18. TEST THE EXACT FAILURE SCENARIO
+==================================================
+
+After implementation, test:
+
+TEST 1:
+
+Upload Video A
+→ upload completes
+→ Bunny starts processing
+→ immediately upload Video A again
+
+Expected:
+
+A #1 → SUCCESS
+A #2 → SUCCESS
+
+TEST 2:
+
+Upload A
+→ processing
+
+Upload B
+→ upload
+
+Upload A again
+
+Expected:
+all uploads independent and successful.
+
+TEST 3:
+
+Select A
+→ remove/cancel
+→ select A again
+
+Expected:
+second selection triggers the upload normally.
+
+TEST 4:
+
+Start one upload and attempt to trigger startUpload() twice.
+
+Expected:
+only one upload attempt is created.
+
+TEST 5:
+
+Force/reproduce a 409 if possible.
+
+Expected:
+bounded offset recovery
+→ no infinite loop
+→ correct offset reconciliation.
+
+TEST 6:
+
+Test Android Chrome.
+
+Test:
+
+- Wi-Fi
+- mobile data
+- small video
+- larger video
+
+==================================================
+19. IMPORTANT PRODUCTION LOG TEST
+==================================================
+
+After implementation, if the same failure still happens in production, DO NOT immediately change chunk size, remove chunks, change queue configuration, or rollback.
+
+First inspect the new TUS logs.
+
+We specifically need to determine the real origin of:
+
+Upload-Offset: 2
+
+Capture:
+
+- client offset
+- Bunny offset
+- chunk length
+- Bunny response
+- retry count
+- TUS upload ID
+- Bunny video GUID
+- local video ID
+
+Only then make another targeted change.
+
+==================================================
+20. VALIDATION
+==================================================
+
+Run appropriate PHP syntax checks on all modified PHP files.
+
+Check JavaScript/Blade for:
+
+- syntax errors
+- duplicate handlers
+- duplicate functions
+- missing braces
+- broken async/await
+- incorrect upload state resets
+
+Run Laravel tests if the project has relevant tests.
+
+Do not claim the problem is fixed unless the exact:
+
+Video A processing → Video A uploaded again
+
+scenario has been tested successfully.
+
+==================================================
+21. FINAL REPORT
+==================================================
+
+After implementation, report:
+
+1. Files modified
+2. Exact changes made
+3. Confirmation that TUS remains enabled
+4. Confirmation that 2 MB chunking remains enabled
+5. Confirmation that QUEUE_CONNECTION remains database
+6. Confirmation that no queue server was introduced
+7. Confirmation that same-file re-selection works
+8. Confirmation that duplicate startUpload() is prevented
+9. Confirmation that every new upload receives a new Bunny GUID
+10. Confirmation that every new upload receives a new TUS session
+11. 409 handling behavior
+12. Maximum retry count
+13. Upload-Offset validation
+14. Result of the same-video-while-processing test
+15. Android Chrome test result
+16. Any remaining issue
+17. Exact logs/errors if the issue still occurs
+
+==================================================
+FINAL RULE
+==================================================
+
+Make MINIMAL, TARGETED changes.
+
+Do not redesign the upload system.
+
+Do not remove TUS.
+
+Do not remove chunking.
+
+Do not change 2 MB yet.
+
+Do not change QUEUE_CONNECTION=database.
+
+Do not introduce a queue server.
+
+Do not rollback to direct Bunny.
+
+Fix the known frontend, CSRF, duplicate-upload, and TUS offset/retry problems first.
+
+Then test the exact real-world failure:
+
+Video A uploads → Bunny processes → Video A is uploaded again.
+
+The goal is RELIABILITY first, while preserving the current architecture.

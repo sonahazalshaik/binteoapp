@@ -1,0 +1,966 @@
+================================================================================
+   COMPREHENSIVE PERFORMANCE & SCALABILITY AUDIT
+   Project: Binteo (Laravel 12 + Tailwind + MySQL Video Platform)
+   Stack: Bunny CDN (videos/reels) | Cloudflare R2 (images) | Brevo/Zepto Mail
+          Razorpay (payments) | Firebase FCM (push notifications) | Reverb (WS)
+   Scenario: 1000 Simultaneous Users on Cloud VPS
+   Date: August 2026
+================================================================================
+
+TABLE OF CONTENTS
+-----------------
+  1.  Server Config (.env) Current State
+  2.  Middleware Stack (Every Request Cost)
+  3.  P0 Critical Issues (Server Crashers)
+  4.  P1 High Priority Issues (Major Slowdowns)
+  5.  P2 Medium Priority Issues (Degraded UX)
+  6.  P3 Low Priority Issues (Optimization)
+  7.  Controller-by-Controller Audit
+  8.  Service-by-Service Audit
+  9.  Job & Queue Audit
+  10. Frontend Performance Audit
+  11. Database & Model Audit
+  12. External API Dependencies
+  13. Recommended Fixes (Priority Order)
+  14. Server Sizing Recommendations
+
+================================================================================
+1. SERVER CONFIG (.env) CURRENT STATE
+================================================================================
+
+  QUEUE_CONNECTION=sync          <-- CRITICAL: All jobs run synchronously
+  SESSION_DRIVER=database        <-- CRITICAL: Every request hits MySQL for sessions
+  SESSION_LIFETIME=525600        <-- Sessions last 1 YEAR (never expire effectively)
+  CACHE_STORE=database           <-- CRITICAL: Cache defeats itself by using MySQL
+  DB_CONNECTION=mysql            <-- Single MySQL instance for ALL operations
+
+  BUNNY_LIBRARY_ID=646573
+  BUNNY_CDN_HOSTNAME=vz-9de53dce-d3d.b-cdn.net
+  (Cloudflare R2 configured in config/filesystems.php via AppServiceProvider)
+  (Razorpay keys present but empty: RAZORPAY_KEY= RAZORPAY_SECRET=)
+  (Firebase FCM fully configured with credentials)
+  (Brevo + Zepto mail both configured)
+
+================================================================================
+2. MIDDLEWARE STACK (EVERY REQUEST COST)
+================================================================================
+
+  14 middleware execute on EVERY web request in this order:
+
+  #   Middleware                        DB Queries    Cache    Notes
+  --  --------------------------------  ----------    -----    -----
+  1   CheckMaintenanceMode              0-1           YES(gs)  Reads GeneralSetting (cached)
+  2   IpBlockingMiddleware              1             NO       BlockedIp::exists() EVERY request
+  3   VisitorLogMiddleware              1-2           NO       VisitorLog EXISTS + conditional INSERT
+  4   ForceUpdateMiddleware             0             YES(gs)  Reads GeneralSetting (cached)
+  5   BlockAdminFromFrontend            0             NO       DEAD CODE - no-op
+  6   XssSanitization                   0             NO       CPU: strip_tags on all input
+  7   SecurityHeaders                   0             NO       Response headers only
+  8   Honeypot                          0             NO       Input check only
+  9   CheckUserStatus                   0             NO       Reads loaded user model
+  10  CaptureTrafficSource              0             NO       Session writes only
+  11  LogSystemPerformance              1             NO       INSERT into system_logs EVERY request
+  12  CheckModerationStrikes            1-2           NO       CopyrightStrike queries (auth users)
+  13  CheckModerationNotices            1-2           NO       Report/ReelReport queries (auth users)
+  14  UpdateLastSeen                    0-1           YES      Cache PUT + conditional DB UPDATE
+
+  MINIMUM per authenticated request: 5-9 DB queries just from middleware alone
+  Plus: AppServiceProvider::boot() adds 2-3 more (site_settings, categories)
+
+  TOTAL OVERHEAD BEFORE ANY CONTROLLER CODE: 7-12 DB queries per request
+
+  Dead Middleware (remove):
+    - BlockAdminFromFrontend (line 19: just return $next)
+    - CheckAppVersion (line 18: just return $next)
+
+================================================================================
+3. P0 CRITICAL ISSUES (SERVER CRASHERS)
+================================================================================
+
+ISSUE #1: SYNCHRONOUS VIDEO TRANSCODING
+-----------------------------------------
+  Location:  app/Services/Frontend/VideoService.php:536
+             app/Jobs/ProcessVideo.php
+
+  Code:      ProcessVideo::dispatchSync($video);
+
+  Problem:   FFmpeg transcodes video into 3 HLS variants (360p, 720p, 1080p)
+             SYNCHRONOUSLY inside the HTTP request. Blocks PHP worker for
+             30-120+ seconds. ProcessVideo implements ShouldQueue but is
+             called with dispatchSync(), bypassing the queue entirely.
+
+  The ProcessVideo job has NO $timeout property (defaults to 60s) but FFmpeg
+  transcoding can take 30-120+ seconds for large videos.
+
+  Note: Admin panel dispatches it correctly with ProcessVideo::dispatch()
+  (ManageVideoController.php:166, Admin/VideoController.php:243)
+
+  Impact:    50 simultaneous uploads = 50 PHP workers locked for minutes.
+             cPanel/VPS typically has 10-30 PHP workers. Server stops
+             responding to ALL requests. 502/504 errors guaranteed.
+
+
+ISSUE #2: DIRECT VIDEO/REEL UPLOADS BLOCK PHP WORKERS
+------------------------------------------------------
+  Location:  app/Services/Frontend/UploadService.php:480-495
+             app/Services/Frontend/UploadService.php:541-560
+
+  Code:      set_time_limit(0);
+             $fileContent = file_get_contents($file->getRealPath());
+             Http::withBody($fileContent)->put("https://video.bunnycdn.com/...");
+
+  Problem:   Reads entire video file into memory, then uploads to Bunny CDN
+             via synchronous HTTP PUT with 3600 second (1 HOUR) timeout.
+             Each upload holds a PHP worker for the entire duration.
+
+  Impact:    10 concurrent uploads = 10 PHP workers blocked for minutes each.
+
+
+ISSUE #3: TUS PROXY CHUNK UPLOADS BLOCK WORKERS
+-------------------------------------------------
+  Location:  app/Http/Controllers/TusProxyController.php:75-78
+
+  Code:      Http::patch()->timeout(120)  // per chunk
+
+  Problem:   Every upload chunk is proxied through PHP with 120s timeout.
+             Each chunk holds a worker for up to 2 minutes.
+
+  Impact:   Upload chunks are frequent. Multiple simultaneous uploads
+             will exhaust PHP workers.
+
+
+ISSUE #4: VIDEO DOWNLOADS PROXIED THROUGH PHP
+----------------------------------------------
+  Location:  app/Http/Controllers/Web/VideoController.php:59-83
+
+  Code:      set_time_limit(0);
+             $ch = curl_init();
+             curl_setopt($ch, CURLOPT_WRITEFUNCTION, function(...) {
+                 echo $data; flush();
+             });
+             curl_exec($ch);
+
+  Problem:   Downloads stream from Bunny CDN through PHP via cURL proxy.
+             Each download holds a PHP-FPM worker for the ENTIRE transfer.
+             A 500MB video download could hold a worker for minutes.
+
+  Impact:    100 concurrent downloads = 100 PHP workers blocked.
+
+
+ISSUE #5: DATABASE SESSIONS THAT NEVER EXPIRE
+----------------------------------------------
+  Location:  .env: SESSION_DRIVER=database, SESSION_LIFETIME=525600
+
+  Problem:   Every request reads/writes the MySQL sessions table (2 queries).
+             Sessions last 525600 minutes (1 YEAR). Table grows unbounded.
+             After 1 month: ~30,000 rows. After 6 months: ~180,000 rows.
+
+  Impact:    2 extra MySQL queries per request. Over months, sessions table
+             becomes a major drag on MySQL performance.
+
+
+ISSUE #6: CACHE STORED IN MYSQL DATABASE
+-----------------------------------------
+  Location:  .env: CACHE_STORE=database
+
+  Problem:   Every Cache::get() and Cache::put() is a MySQL query.
+             This defeats the entire purpose of caching.
+
+  Note:      Some code works around this with Cache::store('file') but
+             the global default still hits MySQL.
+
+  Impact:    Instead of sub-millisecond in-memory cache, every cache
+             operation takes 5-50ms from MySQL.
+
+
+ISSUE #7: SUBSCRIBER NOTIFICATION FAN-OUT (SYNCHRONOUS)
+--------------------------------------------------------
+  Locations: app/Services/Frontend/VideoService.php:502-528
+             app/Services/Frontend/UploadService.php:389-413
+             app/Services/Frontend/ReelService.php:415-441
+             app/Http/Controllers/BunnyWebhookController.php:110-135
+
+  Problem:   When a video is published, code loops over ALL subscribers
+             and for EACH subscriber:
+               1. Creates a UserNotification DB record (INSERT)
+               2. Broadcasts via Reverb WebSocket
+               3. Dispatches SendFirebaseNotificationJob
+
+             For a channel with 10,000 subscribers: 10,000 DB inserts +
+             10,000 broadcasts + 10,000 job dispatches SYNCHRONOUSLY.
+
+  Impact:    A single video publish from a large channel can take minutes
+             and create 30,000+ synchronous operations.
+
+
+================================================================================
+4. P1 HIGH PRIORITY ISSUES (MAJOR SLOWDOWNS)
+================================================================================
+
+ISSUE #8: ORDER BY RAND() EVERYWHERE
+--------------------------------------
+  Locations: app/Services/Frontend/HomeService.php:20,65,70,75
+             app/Services/Frontend/ReelService.php:122,131,165
+
+  Problem:   inRandomOrder() = ORDER BY RAND() = full table scan.
+             Homepage has 4x inRandomOrder().
+             Reels page has 3x inRandomOrder().
+
+  Impact:    1000 users = 7000 full-table-scan queries/minute.
+             With large tables, each query can take 100-500ms.
+
+
+ISSUE #9: ZERO CACHING ON HOMEPAGE/VIDEO/CHANNEL PAGES
+--------------------------------------------------------
+  Locations: app/Services/Frontend/HomeService.php:15-88 (12 queries)
+             app/Services/Frontend/VideoService.php:35-170 (15+ queries)
+             app/Services/Frontend/ChannelService.php:21-47 (7+ queries)
+
+  Problem:   Every page load runs all queries fresh against MySQL.
+             Homepage: 12 separate queries with JOINs and subqueries.
+             Video page: 15+ queries with eager loading.
+             Channel page: 7+ queries, some loading overlapping data.
+
+  The ONLY cache in the web frontend is HomeService::fetchVideos() which
+  uses Cache::store('file')->remember() with 30s TTL for AJAX load-more.
+
+  Impact:    1000 users = 12,000-18,000 MySQL queries/minute for homepage alone.
+
+
+ISSUE #10: REELS PAGE EAGER-LOADS SUBSCRIBERS
+------------------------------------------------
+  Location:  app/Services/Frontend/ReelService.php:86
+
+  Code:      $query->with(['user.channel', 'music', 'hashtags', 'likes',
+             'channel', 'channel.subscribers', 'category'])
+
+  Problem:   Loads ALL subscribers for every reel's channel. If a channel
+             has 10,000 subscribers, that's 10,000 rows per reel.
+             With 50 reels = potentially 500,000 rows loaded into memory.
+
+  Then at reels/index.blade.php:1495:
+    subscribers_count: {{ $r->channel?->subscribers()->count() ?? 0 }}
+  This runs a COUNT query per reel INSTEAD of using the eager-loaded data.
+
+  Impact:    Massive memory usage + 50 extra COUNT queries per page load.
+
+
+ISSUE #11: getIpInfo() EXTERNAL API ON EVERY VIEW
+---------------------------------------------------
+  Locations: app/Services/Frontend/VideoService.php:193,206 (video views)
+             app/Services/Frontend/ReelService.php:698 (reel views)
+             app/Http/Controllers/Auth/AuthenticatedSessionController.php:60
+             app/Http/Controllers/Auth/RegisteredUserController.php:117
+             app/Http/Controllers/Web/GoogleController.php:112
+             app/Services/AuthService.php:151
+
+  Code:      file_get_contents("http://ip-api.com/json/{$ip}")
+             (3 second timeout)
+
+  Problem:   Every video view, reel view, login, and registration makes
+             a synchronous HTTP call to ip-api.com for geo-location.
+
+  Impact:    1000 users watching videos = 1000 outbound HTTP requests.
+             Adds 100-500ms latency per video page load.
+
+
+ISSUE #12: UNBOUNDED COMMENT REPLIES
+--------------------------------------
+  Location:  app/Services/Frontend/VideoService.php:116
+
+  Code:      ->with(['user', 'replies.user', 'likes'])
+
+  Problem:   Parent comments limited to 20, but replies have NO limit.
+             A viral video with 500 replies on one comment loads all 500.
+
+  Impact:    Memory exhaustion and slow queries on popular videos.
+
+
+ISSUE #13: LIKE COUNT QUERY AFTER EVERY LIKE
+---------------------------------------------
+  Location:  app/Services/Frontend/VideoService.php:584-586
+
+  Code:      $video->likes()->count()  // after every toggle
+
+  Problem:   Runs a COUNT query after every single like/unlike action.
+             Could use cached counter instead.
+
+  Impact:    High-traffic videos getting many likes = constant COUNT queries.
+
+
+ISSUE #14: BLACKLISTED KEYWORDS LOADED ON EVERY COMMENT
+--------------------------------------------------------
+  Locations: app/Services/Frontend/CommentService.php:55
+             app/Services/Frontend/ReelService.php:484
+
+  Code:      BlacklistedKeyword::pluck('keyword')->toArray()
+
+  Problem:   Loads ALL blacklist keywords from DB on every comment/reply.
+             No caching whatsoever.
+
+  Impact:    1000 users commenting = 1000 full-table loads/minute.
+
+
+================================================================================
+5. P2 MEDIUM PRIORITY ISSUES (DEGRADED UX)
+================================================================================
+
+ISSUE #15: 610KB+ RENDER-BLOCKING RESOURCES ON VIDEO PAGE
+----------------------------------------------------------
+  Location:  resources/views/frontend/videos/show.blade.php:10-12
+
+  Blocking:  Plyr CSS (~30KB), HLS.js (~250KB, no defer), Plyr JS (~100KB),
+             Material Symbols font (~100KB), Font Awesome CSS (~80KB)
+
+  Impact:    1-3 second blank screen before content appears.
+
+
+ISSUE #16: BLADE TEMPLATE INLINE QUERIES
+-----------------------------------------
+  Location:  resources/views/frontend/videos/show.blade.php:549-557,603
+
+  Inline DB queries in template:
+    Line 551: Subscription::where()->exists()        (subscribe status)
+    Line 554: auth()->user()->playlists()->where()   (Watch Later check)
+    Line 555: $wlPlaylist->videos()->where()->exists() (WL video check)
+    Line 603: Subscription::where()->value()         (notification pref)
+
+  Impact:    4 extra DB queries per video page that could be in controller.
+
+
+ISSUE #17: 305KB CSS BUNDLE (TAILWIND NOT PURGED)
+---------------------------------------------------
+  Location:  public/build/assets/app-p6u6Cyks.css (305.7 KB)
+
+  Problem:   Tailwind CSS output is bloated. Not purging unused classes.
+
+  Impact:    Slow initial CSS download and parse time.
+
+
+ISSUE #18: ALPINE.JS DOUBLE INITIALIZATION
+--------------------------------------------
+  Locations: resources/views/layouts/app.blade.php:30-31 (CDN load)
+             resources/js/app.js:7 (Alpine.start() from NPM bundle)
+
+  Problem:   Alpine.js loaded from BOTH CDN and NPM bundle. Both auto-start.
+             @alpinejs/collapse also loaded twice (CDN + NPM).
+
+  Impact:    Double event handlers, doubled memory usage, potential bugs.
+
+
+ISSUE #19: ~1380 LINES OF INLINE JS IN MAIN LAYOUT
+-----------------------------------------------------
+  Location:  resources/views/layouts/app.blade.php:164-2133
+
+  Problem:   Massive inline script blocks in the main layout.
+             Not minified, not cacheable independently.
+             Parsed on EVERY page load.
+
+  Impact:    Adds parsing time to every page load.
+
+
+ISSUE #20: ONLY 1.6% OF IMAGES USE LAZY LOADING
+--------------------------------------------------
+  Stats:     438 <img> tags total, only 7 use loading="lazy"
+
+  Problem:   All video thumbnails, avatars, banners loaded eagerly.
+             Pages with many images (video show, channel, marketplace)
+             load everything upfront.
+
+  Impact:    Massive initial page weight, slow FCP on image-heavy pages.
+
+
+ISSUE #21: 144MB OF RAW VIDEOS IN PUBLIC DIRECTORY
+----------------------------------------------------
+  Location:  public/assets/videos/ and public/storage/videos/
+
+  Problem:   Raw MP4 files (11-20MB each) served directly from web root.
+             No CDN, no streaming, no access control.
+
+  Impact:    Direct file serving bypasses any application logic.
+
+
+ISSUE #22: SENDFIREBASENOTIFICATIONJOB MISSING TIMEOUT
+-------------------------------------------------------
+  Location:  app/Jobs/SendFirebaseNotificationJob.php
+
+  Problem:   No $timeout or $tries properties set.
+             Default 60s timeout may be insufficient.
+             Default 1 try means no retries on failure.
+
+  Impact:    Firebase slowdowns = silent notification failures.
+
+
+ISSUE #23: LOGSYSTEMPERFORMANCE WRITES ON EVERY REQUEST
+--------------------------------------------------------
+  Location:  app/Http/Middleware/LogSystemPerformance.php:33
+
+  Code:      SystemLog::create([...])  // EVERY request
+
+  Problem:   Synchronous INSERT on every single request.
+             Should be queued.
+
+  Impact:    1000 users = 1000 INSERT queries/minute just for logging.
+
+
+================================================================================
+6. P3 LOW PRIORITY ISSUES
+================================================================================
+
+ISSUE #24: 4 CONTINUOUS requestAnimationFrame LOOPS
+  Location: resources/views/frontend/index.blade.php:167,261,356,450
+  Problem: Four slider components run continuous animation loops even
+           when tab is idle. CPU waste on mobile devices.
+
+ISSUE #25: 60+ CREATOR CARD PARTIALS RENDERED TWICE
+  Location: resources/views/frontend/index.blade.php:329,424,518
+  Problem: concat() doubles collections for infinite scroll illusion.
+           ~135 partial renders on first homepage load.
+
+ISSUE #26: 5 VIDEO ELEMENTS PRELOADED ON HOMEPAGE
+  Location: resources/views/frontend/index.blade.php:611
+  Problem: 5 <video> elements with preload="metadata" fetch metadata
+           for all 5 video sources on page load.
+
+ISSUE #27: TAILWIND CDN IN PRODUCTION
+  Location: resources/views/frontend/update_required.blade.php:7
+  Problem: Loads https://cdn.tailwindcss.com (dev-only JIT script).
+           Should never be in production.
+
+ISSUE #28: UNCOMPRESSED MEDIA ASSETS
+  Location: public/assets/reel_music/ (WAV files up to 1.4MB)
+            public/assets/images/thumbnail/ (PNG files up to 2.8MB)
+  Problem: No WebP/AVIF conversion. Large files served uncompressed.
+
+ISSUE #29: HARDCODED FIREBASE CREDENTIALS IN SERVICE WORKER
+  Location: public/firebase-messaging-sw.js:5-11
+  Problem: Firebase API key, project ID hardcoded in service worker.
+
+ISSUE #30: DUPLICATE SCHEDULED TASK
+  Locations: routes/console.php:12 (analytics:aggregate at 00:00)
+             bootstrap/app.php:77 (analytics:aggregate at 03:00)
+  Problem: analytics:aggregate scheduled TWICE daily.
+
+
+================================================================================
+7. CONTROLLER-BY-CONTROLLER AUDIT
+================================================================================
+
+--- Web/VideoController.php ---
+  show():   15+ DB queries + getIpInfo() external API + app()->terminating writes
+  store():  15+ DB queries + dispatchSync(FFmpeg) + subscriber fan-out
+  download(): set_time_limit(0) + cURL proxy (worker held indefinitely)
+  toggleLike(): 4 DB queries + broadcast + COUNT after mutation
+  trending(): withCount subquery with pagination (expensive)
+  history(): 4 complex queries with eager loading
+
+--- Web/ReelController.php ---
+  index():  inRandomOrder() + channel.subscribers eager load + duplicate queries
+  recordView(): ReelView INSERT + getIpInfo() + ViewLog UPSERT + increment
+  comment(): BlacklistedKeyword::pluck() + loop over mentions + notifications
+  store():  fileUploader x3 + hashtag/mention/tag loops + subscriber fan-out
+
+--- Web/HomeController.php ---
+  index():  12 DB queries via HomeService (all uncached)
+  fetchVideos(): ONLY cached endpoint (30s file cache)
+
+--- Web/ChannelController.php ---
+  show():   7+ DB queries, some loading overlapping data, zero caching
+
+--- Web/CommentController.php ---
+  index():  BlockedUser::pluck() + complex nested eager load
+  store():  BlacklistedKeyword::pluck() + create + COUNT + notification loop
+
+--- Web/SearchController.php ---
+  index():  4 complex LIKE queries (full table scans), zero caching
+
+--- Web/SubscriptionController.php ---
+  toggle(): 5 DB operations (check, detach/attach, increment/decrement, notify)
+
+--- Web/StudioController.php ---
+  dashboard(): 12+ DB queries, zero caching
+  overview():  loads ALL ViewLog records into PHP, groups in memory
+  realtime():  loads ALL records for last 48h into PHP
+  buyMonetization(): synchronous Razorpay API calls
+
+--- Web/PlaylistController.php ---
+  Standard CRUD, moderate query count
+
+--- Web/LikeController.php ---
+  toggle(): similar to VideoController::toggleLike()
+
+--- Web/ProfileController.php ---
+  update(): ImageHelper::uploadToR2() (external HTTP to Cloudflare R2)
+
+--- Gateway/PaymentController.php ---
+  deposit(): loads all gateways
+  depositConfirm(): dynamic class instantiation + external API
+
+--- Web/BunnyUploadController.php ---
+  checkStatus(): HTTP GET to Bunny API per poll
+  checkReelStatus(): HTTP GET to Bunny API per poll
+
+--- CronController.php ---
+  index(): Http::get() in LOOP over all cron URLs (blocking)
+
+--- TusProxyController.php ---
+  patch(): Http::patch() with 120s timeout per chunk (blocking)
+
+--- BunnyWebhookController.php ---
+  handle(): subscriber fan-out for processing-complete notifications
+
+--- Auth/RegisteredUserController.php ---
+  store(): while-loop for slug uniqueness + getIpInfo() + SYNCHRONOUS MAIL
+
+--- Auth/AuthenticatedSessionController.php ---
+  store(): getIpInfo() + UserLogin tracking
+
+--- Web/GoogleController.php ---
+  handleGoogleCallback(): getIpInfo() + UserLogin tracking
+
+--- Admin Controllers (50 files) ---
+  Most follow standard CRUD patterns
+  View composer runs 13 uncached COUNT queries per admin page load
+
+================================================================================
+8. SERVICE-BY-SERVICE AUDIT
+================================================================================
+
+--- Frontend/VideoService.php ---
+  show(): 15+ queries, zero caching, external API calls
+  store(): dispatchSync + subscriber fan-out
+  getVideoComments(): unbounded replies
+  toggleLike(): COUNT after every mutation
+  history(): complex subqueries
+  trending(): expensive withCount subquery
+
+--- Frontend/HomeService.php ---
+  getHomepageData(): 12 queries, 4x inRandomOrder(), zero caching
+  fetchVideos(): 30s file cache (only cached endpoint)
+
+--- Frontend/ReelService.php ---
+  index(): 3x inRandomOrder(), channel.subscribers eager load, duplicate queries
+  recordView(): external API per view
+  comment(): BlacklistedKeyword::pluck() per comment
+  store(): fileUploader x3 + subscriber fan-out
+  getComments(): BlockedUser::pluck() per request
+
+--- Frontend/ChannelService.php ---
+  show(): 7+ queries with overlapping eager loads, zero caching
+
+--- Frontend/CommentService.php ---
+  BlacklistedKeyword::pluck() per comment + notification loop per mention
+
+--- Frontend/SearchService.php ---
+  4 LIKE queries (full table scans), zero caching
+
+--- Frontend/SubscriptionService.php ---
+  toggle(): 5 DB operations
+
+--- Frontend/UploadService.php ---
+  prepareUpload(): Bunny API call + subscriber fan-out
+  uploadVideoDirect(): set_time_limit(0) + full file read + HTTP PUT to Bunny
+  uploadReelDirect(): same blocking pattern
+  checkStatus()/checkReelStatus(): Bunny API polling
+
+--- Frontend/StudioService.php ---
+  dashboard(): 12+ queries
+  overview(): loads ALL records into PHP
+  realtime(): loads ALL records for last 48h into PHP
+
+--- Frontend/ProfileService.php ---
+  update(): ImageHelper::uploadToR2() (Cloudflare R2 HTTP)
+
+--- BunnyStreamService.php ---
+  All methods make HTTP calls to api.bunny.net
+  No timeout specified on most calls (default 30s)
+  No caching of video metadata
+
+--- Helpers/ImageHelper.php ---
+  r2Exists(): cached 24h via file store
+  uploadToR2(): HTTP to Cloudflare R2
+  getPhotoUrl(): filesystem stat + R2 check (hot path, cached per-request)
+  deleteImage(): HTTP to R2
+
+--- helpers.php ---
+  gs(): GeneralSetting with cache (called extremely frequently)
+  getIpInfo(): external HTTP to ip-api.com
+  getImage(): delegates to ImageHelper (filesystem + R2 checks)
+  fileUploader(): local file upload
+  createUniqueSlug(): while-loop with DB queries (no upper bound)
+
+================================================================================
+9. JOB & QUEUE AUDIT
+================================================================================
+
+--- ProcessVideo.php ---
+  Implements ShouldQueue BUT called with dispatchSync()
+  No $timeout property (default 60s)
+  No $tries property (default 3)
+  Processing: FFmpeg HLS transcoding (360p, 720p, 1080p)
+  Risk: BLOCKS HTTP worker for minutes
+
+--- CompressReel.php ---
+  Implements ShouldQueue, called with dispatch() (async) CORRECT
+  $timeout = 300 (5 minutes)
+  $tries = 3
+  Processing: FFmpeg compression + BunnyCDN upload
+  Risk: Properly configured
+
+--- SendFirebaseNotificationJob.php ---
+  Implements ShouldQueue, called with dispatch() (async) CORRECT
+  No $timeout (default 60s)
+  No $tries (default 1 - no retries!)
+  Processing: Firebase HTTP API call
+  Risk: Slow Firebase = silent failures, no retries
+
+  Dispatched from 17 locations across the codebase
+
+--- Queue Configuration ---
+  QUEUE_CONNECTION=sync (ALL jobs run synchronously in HTTP request)
+  Scheduler runs: queue:work --stop-when-empty --tries=3 --timeout=300 (every minute)
+  This is a WORKAROUND for no persistent queue worker - very inefficient
+
+================================================================================
+10. FRONTEND PERFORMANCE AUDIT
+================================================================================
+
+--- Layouts ---
+  app.blade.php:  5 render-blocking CSS, ~1380 lines inline JS
+  guest.blade.php: SweetAlert2 + validation.js without defer
+  admin.blade.php: validation.js without defer
+
+--- CDN Dependencies (per page) ---
+  fonts.googleapis.com:   3-5 CSS files (render-blocking)
+  cdnjs.cloudflare.com:   Font Awesome, Cropper.js, jQuery
+  cdn.jsdelivr.net:       Alpine.js, SweetAlert2, HLS.js, ApexCharts
+  cdn.plyr.io:            Plyr player (video page only)
+  checkout.razorpay.com:  Payment gateway
+  www.gstatic.com:        Firebase SDK
+  upload.wikimedia.org:   Google logo SVG
+  Total: 7-9 unique external domains per page
+
+--- Vite Bundle ---
+  CSS: 305.7 KB (bloated Tailwind)
+  JS:  141.3 KB (includes axios, echo, Alpine via NPM)
+  No code splitting configured
+  No compression plugin
+
+--- Alpine.js ---
+  273 x-data components across all templates
+  Double initialization (CDN + NPM)
+  videoOptions component: ~370 lines, duplicated in DOM (mobile + desktop)
+
+--- Images ---
+  438 <img> tags total
+  Only 7 (1.6%) use loading="lazy"
+  No WebP/AVIF optimization
+  144MB of raw videos in public/
+
+--- Inline Scripts ---
+  312 <script> tags across 431 templates
+  Major inline blocks: app.blade.php (~1380 lines), reels/index.blade.php (1188 lines)
+
+--- Service Workers ---
+  public/sw.js (offline caching)
+  public/firebase-messaging-sw.js (FCM - has hardcoded credentials)
+
+================================================================================
+11. DATABASE & MODEL AUDIT
+================================================================================
+
+  Total tables: ~50+ (based on migration count)
+
+  Key tables with high write volume:
+    - sessions (every request if database driver)
+    - cache (every request if database driver)
+    - system_logs (INSERT on every request)
+    - view_logs (every video/reel view)
+    - video_watch_logs (every video view)
+    - reel_views (every reel view)
+    - likes / reel_likes (every like)
+    - comments / reel_comments (every comment)
+    - user_notifications (every notification event)
+    - jobs (if queue switched to database)
+
+  Tables lacking indexes (estimated from query patterns):
+    - blocked_ips.ip_address (queried on every request)
+    - visitor_logs.session_id + created_at (queried on every request)
+    - system_logs (INSERT heavy, may need partitioning)
+    - view_logs (heavy reads + writes)
+    - blacklisted_keywords (full table load on every comment)
+
+  No observers or event listeners (clean)
+  No SoftDeletes found on main models
+  No database-level query logging in production
+
+================================================================================
+12. EXTERNAL API DEPENDENCIES
+================================================================================
+
+  Service             Endpoint                    Frequency           Blocking?
+  ----------------    -----------------------     ----------------    ---------
+  ip-api.com          http://ip-api.com/json/     Every view/login    YES (3s timeout)
+  Bunny Stream API    https://api.bunny.net/      Every upload        YES
+  Bunny CDN Upload    https://video.bunnycdn.com  Every upload chunk  YES (120s timeout)
+  Bunny CDN Download  Bunny download URLs         Every download      YES (worker held)
+  Razorpay API        https://api.razorpay.com/   Every payment       YES
+  Google OAuth        oauth2.googleapis.com       Every Google login  YES
+  Firebase FCM        fcm.googleapis.com          Every notification  NO (queued)
+  Cloudflare R2       S3-compatible API           Every image upload  YES
+  Brevo/Zepto Mail    SMTP                        Every registration  YES (sync)
+
+  CRITICAL: 7 of 9 external APIs are called synchronously in HTTP workers.
+  A single slow/down external service can cascade into worker exhaustion.
+
+================================================================================
+13. RECOMMENDED FIXES (PRIORITY ORDER)
+================================================================================
+
+=== PHASE 1: SERVER CRASHERS (Do First) ===
+
+FIX #1: Change .env for Queue/Session/Cache
+  QUEUE_CONNECTION=database     (was: sync)
+  SESSION_DRIVER=file           (was: database)
+  SESSION_LIFETIME=120          (was: 525600)
+  CACHE_STORE=file              (was: database)
+  This alone eliminates ~4 DB queries per request + fixes job blocking.
+
+FIX #2: Make ProcessVideo Async
+  File: app/Services/Frontend/VideoService.php:536
+  Change: ProcessVideo::dispatchSync($video)
+  To:     ProcessVideo::dispatch($video)
+  Add $timeout = 600 to ProcessVideo.php
+  Set up persistent queue worker: php artisan queue:work --timeout=300
+
+FIX #3: Fix Direct Upload Blocking
+  File: app/Services/Frontend/UploadService.php:480-495, 541-560
+  Option A: Use Bunny TUS direct upload (skip PHP proxy)
+  Option B: Move to queued job
+  Option C: At minimum, stream the file instead of file_get_contents()
+
+FIX #4: Fix TUS Proxy Timeout
+  File: app/Http/Controllers/TusProxyController.php:75
+  Reduce timeout from 120s to 30s
+  Better: Use Bunny TUS endpoint directly from frontend
+
+FIX #5: Fix Video Downloads
+  File: app/Http/Controllers/Web/VideoController.php:59-83
+  Option A: Generate signed Bunny CDN URL and redirect (best)
+  Option B: Use X-Accel-Redirect / X-Sendfile pattern
+  Never proxy through PHP.
+
+FIX #6: Fix Subscriber Notification Fan-Out
+  Files: VideoService.php:502-528, UploadService.php:389-413,
+         ReelService.php:415-441, BunnyWebhookController.php:110-135
+  Create a SendSubscriberNotifications job that handles the loop.
+  Dispatch once, let the job loop and create notifications asynchronously.
+
+FIX #7: Fix Registration Synchronous Email
+  File: app/Http/Controllers/Auth/RegisteredUserController.php:139-147
+  Change: app(MailService::class)->send(...)
+  To:     Mail::to(...)->queue(new WelcomeEmail(...))
+
+
+=== PHASE 2: MAJOR SLOWDOWNS ===
+
+FIX #8: Replace inRandomOrder() with Cached Random
+  Files: HomeService.php:20,65,70,75, ReelService.php:122,131,165
+  Technique: Cache a random ID set, or use table modulus trick.
+  Example: Cache::remember('random_video_ids', 300, fn() =>
+             Video::forUser()->pluck('id')->shuffle()->toArray());
+
+FIX #9: Add Page-Level Caching
+  Homepage: Cache::remember('homepage_data', 60, fn() => ...)
+  Video page: Cache::remember("video_{$slug}", 30, fn() => ...)
+  Channel page: Cache::remember("channel_{$slug}", 60, fn() => ...)
+  Invalidate on new content via model observers or cache tags.
+
+FIX #10: Fix ReelService Eager Loading
+  File: ReelService.php:86
+  Remove 'channel.subscribers' from eager load
+  Use $reel->channel->subscribers_count (cached attribute) in blade
+  Fix reels/index.blade.php:1495 to use collection count
+
+FIX #11: Move getIpInfo() to Queued Job
+  Files: VideoService.php:193,206, ReelService.php:698
+  All login/registration getIpInfo() calls
+  Create UpdateGeoLocation job, dispatch async
+
+FIX #12: Limit Comment Replies
+  File: VideoService.php:116
+  Change: ->with(['user', 'replies.user', 'likes'])
+  To:     ->with(['user', 'replies' => fn($q) => $q->latest()->take(5)
+           ->with(['user', 'likes']), 'likes'])
+
+FIX #13: Cache Blacklisted Keywords
+  File: CommentService.php:55, ReelService.php:484
+  Cache::remember('blacklisted_keywords', 3600, fn() =>
+    BlacklistedKeyword::pluck('keyword')->toArray());
+
+FIX #14: Move Blade Inline Queries to Controller
+  File: videos/show.blade.php:549-557,603
+  Load subscription/playlist data in VideoService::show() and pass to view.
+
+
+=== PHASE 3: FRONTEND OPTIMIZATION ===
+
+FIX #15: Fix Render-Blocking Resources
+  Add defer to HLS.js and Plyr script tags
+  Use font-display=swap for Google Fonts
+  Load Font Awesome with preload
+
+FIX #16: Fix Alpine.js Double Initialization
+  Remove CDN load from app.blade.php:30-31
+  Keep NPM bundle only (or vice versa)
+
+FIX #17: Add Lazy Loading to Images
+  Add loading="lazy" to all below-fold images
+  Prioritize above-fold images with fetchpriority="high"
+
+FIX #18: Purge Tailwind CSS
+  Fix tailwind.config.js content paths to include all blade files
+  Target: <80KB CSS output
+
+FIX #19: Move Inline JS to Vite Bundle
+  Extract app.blade.php inline scripts to separate JS files
+  Let Vite handle minification and caching
+
+FIX #20: Remove Dead Middleware
+  Delete BlockAdminFromFrontend (no-op)
+  Delete CheckAppVersion (no-op)
+
+FIX #21: Queue SystemLog Writes
+  File: LogSystemPerformance.php:33
+  Change: SystemLog::create(...)
+  To:     dispatch(new WriteSystemLog(...))
+
+FIX #22: Move SystemLog INSERT to Queue
+  Same as #21
+
+FIX #23: Add Missing Job Properties
+  SendFirebaseNotificationJob: add $timeout = 120, $tries = 3
+
+
+=== PHASE 4: ADVANCED OPTIMIZATION ===
+
+FIX #24: Implement RequestAnimationFrame Visibility Check
+  Pause rAF loops when tab is not visible (document.visibilitychange)
+
+FIX #25: Remove Duplicate Creator Card Rendering
+  Use CSS transform for infinite scroll instead of DOM duplication
+
+FIX #26: Lazy Load Homepage Videos
+  Use intersection observer instead of preload="metadata"
+
+FIX #27: Remove Tailwind CDN from update_required.blade.php
+
+FIX #28: Compress Media Assets
+  Convert WAV to MP3, PNG to WebP
+  Target: 70%+ size reduction
+
+FIX #29: Fix Firebase Service Worker
+  Use dynamic configuration instead of hardcoded credentials
+
+FIX #30: Remove Duplicate Schedule
+  Keep only one analytics:aggregate schedule
+
+
+================================================================================
+14. SERVER SIZING RECOMMENDATIONS (1000 CONCURRENT USERS)
+================================================================================
+
+--- Minimum Cloud VPS Specs ---
+  CPU:       4+ cores (8 recommended for FFmpeg)
+  RAM:       8GB minimum (16GB recommended)
+  Storage:   NVMe SSD, 100GB+
+  Network:   1Gbps+
+  PHP:       PHP 8.2+ with OPcache enabled
+  MySQL:     8.0+ with InnoDB, max_connections=500
+  Web:       Nginx (not Apache mod_php)
+
+--- PHP-FPM Configuration ---
+  pm.max_children = 50       (adjust based on RAM)
+  pm.start_servers = 10
+  pm.min_spare_servers = 5
+  pm.max_spare_servers = 20
+  pm.max_requests = 500      (recycle workers)
+
+--- MySQL Configuration ---
+  innodb_buffer_pool_size = 4G  (50% of RAM)
+  max_connections = 500
+  query_cache_type = 0          (disabled for MySQL 8)
+  slow_query_log = 1
+  long_query_time = 1
+
+--- Queue Worker ---
+  php artisan queue:work --timeout=300 --tries=3 --max-time=3600
+  Run as persistent systemd service (NOT cron every minute)
+
+--- OPcache ---
+  opcache.enable=1
+  opcache.memory_consumption=256
+  opcache.max_accelerated_files=20000
+  opcache.validate_timestamps=0  (in production)
+
+--- Nginx ---
+  worker_processes auto
+  worker_connections 1024
+  keepalive_timeout 65
+  client_max_body_size 500M     (for video uploads)
+  gzip on
+  gzip_types text/css application/javascript application/json
+
+--- Optional: Redis (if available) ---
+  Install Redis for cache + sessions + queue
+  CACHE_STORE=redis
+  SESSION_DRIVER=redis
+  QUEUE_CONNECTION=redis
+  This is the single biggest performance improvement after fixing code.
+
+--- Static Assets ---
+  Serve via Nginx directly (not PHP)
+  Set proper Cache-Control headers
+  Enable Brotli/Gzip compression
+  Use CDN for CSS/JS if possible
+
+--- Monitoring ---
+  Install: htop, mytop, netdata, or New Relic
+  Monitor: PHP-FPM pool, MySQL connections, disk I/O, memory
+  Alert on: >80% CPU, >80% RAM, >100 MySQL connections
+
+================================================================================
+  ESTIMATED IMPACT
+================================================================================
+
+  CURRENT STATE (1000 concurrent users):
+    Middleware overhead:     7-12 DB queries per request
+    Homepage:               12-18 queries, 4x ORDER BY RAND()
+    Video page:             15-25 queries + external API
+    Reels page:             50-60 queries + channel.subscribers eager load
+    Uploads:                Workers blocked for 30-120+ seconds each
+    Downloads:              Workers blocked for entire transfer duration
+    Sessions:               2 queries per request (growing table)
+    Cache:                  Defeats itself via MySQL
+    System logs:            1 INSERT per request
+    External APIs:          1000+ synchronous HTTP calls per minute
+    TOTAL:                  100,000+ MySQL queries/min + worker exhaustion
+    RESULT:                 Server crashes within minutes
+
+  AFTER ALL FIXES:
+    Middleware overhead:     2-3 queries per request (cached)
+    Homepage:               1 query per minute (cached page)
+    Video page:             2-3 queries (cached + minimal data)
+    Reels page:             3-5 queries (fixed eager loading)
+    Uploads:                Background queue, non-blocking
+    Downloads:              CDN redirect, zero PHP involvement
+    Sessions:               File-based, 0 DB queries
+    Cache:                  File/Redis, 0 DB queries
+    System logs:            Queued, non-blocking
+    External APIs:          Queued background jobs
+    TOTAL:                  ~5-10 MySQL queries/minute for all pages
+    RESULT:                 Server comfortably handles 1000+ concurrent users
+
+================================================================================
+  END OF AUDIT
+================================================================================

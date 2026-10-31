@@ -1,0 +1,1615 @@
+# BINTEO PROFILE MARKETPLACE — COMPLETE MODULE DOCUMENTATION
+A pin-to-pin step-by-step explanation of every view, its route, the controller logic behind it, how data flows from backend to frontend, and how each feature works for end users.
+
+---
+
+## TABLE OF CONTENTS
+
+**PART A: PUBLIC-FACING PAGES (Visitors & Logged-out Users)**
+- Step 1: Marketplace Homepage (index.blade.php)
+- Step 2: All Profiles Page (all.blade.php) — AJAX Filtering
+- Step 3: Featured Profiles Page (featured.blade.php)
+- Step 4: Gallery Master Collection (gallery.blade.php)
+- Step 5: Public Creator Portfolio (portfolio.blade.php)
+- Step 6: Plan Preview Page (preview.blade.php)
+- Step 7: Creator Login (login.blade.php)
+- Step 8: Creator Registration (register.blade.php) — 3-Step Wizard
+- Step 9: Terms & Conditions (terms.blade.php)
+
+**PART B: CREATOR DASHBOARD (Logged-in Creators)**
+- Step 10: Dashboard Shell (dashboard.blade.php)
+- Step 11: Dashboard Tab (sections/dashboard.blade.php) — Bento Overview
+- Step 12: Profile Editor Tab (sections/profile.blade.php)
+- Step 13: Gallery Manager Tab (sections/gallery.blade.php)
+- Step 14: Portfolio CRUD Tab (sections/portfolio.blade.php)
+- Step 15: Services Manager Tab (sections/services.blade.php)
+- Step 16: Messaging System Tab (sections/messages.blade.php)
+- Step 17: Contact List Tab (sections/contacts.blade.php)
+- Step 18: Plans & Subscriptions Tab (sections/plans.blade.php)
+- Step 19: Transactions Tab (sections/transactions.blade.php)
+
+**PART C: SHARED COMPONENTS & SCRIPTS**
+- Step 20: Global Modals (sections/modals.blade.php)
+- Step 21: Global Scripts & Razorpay Integration (sections/scripts.blade.php)
+- Step 22: Reusable Partials (creator_card.blade.php, profiles_grid.blade.php)
+
+**PART D: CONTROLLER LOGIC (MarketPlaceController.php)**
+- Step 23: Complete controller method-by-method breakdown
+
+---
+
+# PART A: PUBLIC-FACING PAGES
+
+## Step 1: Marketplace Homepage (index.blade.php)
+**Route:** `GET /marketplace` → `MarketPlaceController@index()`
+**Layout:** `@extends('layouts.app')` (uses the main app layout)
+**Controller file:** `C:\laragon\www\new-youtube\app\Http\Controllers\MarketPlaceController.php`
+
+### How the controller prepares data (lines 26-103):
+
+1. **Step 1A — Parse request filters**: The `index()` method reads three query parameters: `type` (role profession like "Actor", "Director"), `location` (Indian state), and `search` (keyword). These come from the search/filter form on the page.
+
+2. **Step 1B — Build featured query**: The method creates a query called `$featuredQuery` on the `MarketPlace` model for profiles where `status = 1` AND either:
+   - `is_featured = true` (manually marked as featured by admin), OR
+   - Has an active subscription (where `end_date > now()` OR `end_date IS NULL` for lifetime) AND that subscription's plan has `is_featured_plan = true`
+   - This means featured profiles are a combination of admin-curated featured profiles AND creators who have purchased a featured plan.
+
+3. **Step 1C — Build regular query**: A separate `$regularQuery` fetches active profiles where `is_featured = false`. This ensures regular profiles don't appear in the featured section and vice versa.
+
+4. **Step 1D — Apply filters**: If the user selects a role type (e.g., "Actor"), both queries are filtered to only show profiles of that type. Similarly for location. For search, the method checks across name, type, location, skills, business_name, and email fields using LIKE %keyword% queries.
+
+5. **Step 1E — Limit results**: Featured profiles are limited to 8 random picks. Regular profiles are limited to 24 random picks. This keeps the homepage fast-loading.
+
+6. **Step 1F — Check logged-in creator**: The method checks `session('marketplace_user_id')`. If a creator is logged in, it fetches their full profile record and checks if they have an active subscription (for displaying the active plan badge). This data is passed to the view as `$talent` and `$activeSubscription`.
+
+7. **Step 1G — Fetch gallery items**: The latest 8 gallery images from active creators are pulled for the gallery showcase section.
+
+8. **Step 1H — Calculate stats**: Three numbers are computed:
+   - `$stats['profiles']` = count of all active profiles
+   - `$stats['featured']` = count of featured active profiles
+   - `$stats['services']` = count of all services across all creators
+
+9. **Step 1I — Load plans**: All `UserPlan` records are fetched (Silver, Gold, Platinum, Diamond Pro).
+
+10. **Step 1J — Return the view**: All data is compacted and sent to `frontend.marketplace.index`.
+
+### What the user sees and interacts with:
+
+**Section 1 — Hero Gradient Banner:**
+- A full-width gradient header (purple → orange → red) with:
+  - "Profile Marketplace" title with fade-in animation
+  - Subtitle explaining the marketplace purpose
+  - Stats bar showing total active profiles, featured count, and services count
+  - Conditional action buttons at the center:
+    - **If creator is logged in**: Shows a dropdown with the creator's name, linking to Dashboard and Sign Out
+    - **If logged out**: Shows "Create Profile" button (link to register page) and "Profile Login" button (link to login page)
+    - A third button "View Plans" scrolls down to the plans section (#plans anchor)
+
+**Section 2 — Search & Filter Bar:**
+- A sticky form card below the hero with:
+  - **Search text input**: Name search with a search icon and "Search" submit button
+  - **Role Type dropdown**: 40+ film industry roles (Actor, Actress, Director, Producer, Cinematographer, Editor, VFX Artist, etc.) — auto-submits on change
+  - **Location dropdown**: All Indian states/UTs — auto-submits on change
+  - **Rating filter**: Static dropdown (not functional in current version — visual placeholder)
+
+**Section 3 — Featured Profiles Auto-Scrolling Carousel:**
+- A horizontal infinite scroll carousel using Alpine.js with:
+  - **Auto-scroll engine**: A `requestAnimationFrame` loop scrolls left at speed 0.6px per frame. When scroll reaches halfway (because items are duplicated), it resets to 0 — creating a seamless infinite loop.
+  - **Drag-to-scroll**: Mouse down/touch start records the position. Mouse move/touch move calculates delta and scrolls accordingly. A `dragged` flag prevents click events during drag (so dragging doesn't navigate to a profile).
+  - **Pause on hover/interaction**: `@mouseenter` sets `paused = true`, `@mouseleave` sets it back to `false`. This gives users control.
+  - Each creator card uses the `creator_card_small` partial, showing avatar, name, and role.
+  - The featured list is duplicated (`$featuredCreators->concat($featuredCreators)`) so the infinite scroll has enough content to loop.
+
+**Section 4 — All Profiles Grid:**
+- A responsive grid (2 columns on mobile, 4 on desktop) showing regular (non-featured) creator cards.
+- Each card uses `marketplace.partials.creator_card` partial.
+- Includes a "No Profiles Found" empty state with icon, message, and suggestion to adjust filters.
+- A CTA button "Explore All Profiles" at the bottom links to the `/marketplace/all` page.
+
+**Section 5 — Premium Creator Gallery Showcase:**
+- A "Visual Portfolios" badge with indigo styling
+- Grid of gallery images (2 cols mobile, 4 cols desktop) with:
+  - 3:4 aspect ratio images with hover scale effect
+  - Gradient overlay (black to transparent) at the bottom
+  - Creator avatar + name + role info
+  - "View Portfolio" arrow button on hover
+  - Click the image → opens SweetAlert2 lightbox with full-size image
+- "View Master Collection" CTA links to `/marketplace/gallery`
+
+**Section 6 — Plans & Membership Section:**
+- Dark gradient background (`#0f172a` to `#1e1b4b`) with animated glow blobs
+- **Active Subscription Badge** (if the creator has one): Shows plan name, start date, end date or "LIFETIME" status, days remaining, and a dynamic progress bar
+- **4 Plan Cards** in a responsive grid:
+  - Silver, Gold, Platinum, Diamond Pro — each with name, price, duration label, feature list
+  - The last plan gets a "Popular" badge
+  - Each card has a "Subscribe" button that links to dashboard (if logged in) or register (if not) with the plan_id as a query parameter
+
+**Section 7 — Features Bar:**
+- 4 feature cards in a grid: 24/7 Expert Support, Trusted Platform, Secure Payment, Verified Profiles
+- Each has an icon, title, and description with hover effects
+
+### How search and filtering works:
+When the user selects a role type or location from the dropdowns, the form auto-submits (via `onchange="this.form.submit()"`) which sends a GET request back to the same URL with query parameters. The controller reads these parameters, filters the database, and re-renders the entire page with filtered results.
+
+---
+
+## Step 2: All Profiles Page (all.blade.php)
+**Route:** `GET /marketplace/all` → `MarketPlaceController@all()`
+**Layout:** `@extends('layouts.app')`
+
+### Controller Logic (lines 108-168):
+
+1. Reads `type`, `search`, and `filter` query parameters.
+
+2. Starts with a base query: `MarketPlace::where('status', 1)` — only active profiles.
+
+3. **Type filter**: If a type is specified, filters by exact match on the `type` column.
+
+4. **Featured filter**: If `filter == 'featured'`, applies the same featured logic as the homepage (is_featured=true OR has active featured-plan subscription).
+
+5. **Search filter**: If a search term is present, applies LIKE queries on name, type, location, skills, business_name, email.
+
+6. **Sorting**: If `filter == 'latest'`, orders by `created_at DESC`. Otherwise defaults to ordering by active subscription count (featured first) then newest.
+
+7. **Pagination**: 24 profiles per page.
+
+8. **AJAX support**: If the request has `X-Requested-With: XMLHttpRequest` header, returns JSON with rendered HTML for the profiles grid and pagination links. The frontend JavaScript uses this to update the DOM without page reload.
+
+### Frontend Alpine.js Logic:
+
+The page uses a comprehensive Alpine.js component (`x-data`) with:
+- **State variables**: `loading`, `filter`, `type`, `search`, `showDropdown`
+- **`fetchProfiles()`**: Builds a URL with current filter/type/search params, calls `window.history.pushState` to update the URL, fetches JSON from server, swaps `innerHTML` of the profiles container and pagination container
+- **`setFilter(val)`**: Sets the filter (featured/latest), clears type, closes dropdown, fetches
+- **`setType(val)`**: Sets the type filter, clears filter, closes dropdown, fetches
+- **`resetFilters()`**: Clears all filters and fetches
+- **`getActiveLabel()`**: Returns the current active filter label for display on the filter button
+
+### User experience flow:
+
+1. User lands on the page and sees a header with "All Profiles" title and "Back to Marketplace" link.
+
+2. Below the header is a sticky filter bar that stays visible while scrolling:
+   - Left: A filter button using Laravel Jetstream's `<x-dropdown>` component. Clicking opens a dropdown with:
+     - "All Profiles" (default)
+     - "Featured Only"
+     - A divider
+     - Individual role filters (Actor, Actress, Director, etc.) in a scrollable list (max-height 256px with custom scrollbar)
+   - Right: A search input with debounced input (500ms delay) that triggers `fetchProfiles()` as the user types. A loading spinner replaces the search icon during AJAX requests.
+
+3. The profiles grid shows 24 profiles at a time with pagination below. During loading, a blur/grayscale overlay with reduced opacity provides visual feedback.
+
+4. Pagination links load new pages via normal HTTP requests (not AJAX).
+
+---
+
+## Step 3: Featured Profiles Page (featured.blade.php)
+**Route:** `GET /marketplace/featured` → `MarketPlaceController@featured()`
+**Layout:** `@extends('layouts.app')`
+
+### Controller Logic (lines 173-196):
+
+1. Builds a query for active profiles that are featured (same featured logic as before).
+2. Orders by latest first.
+3. Paginates by 15 per page.
+4. Checks for logged-in creator session.
+
+### What the page shows:
+- Header with orange "Handpicked Excellence" badge, "Featured Profiles" title, and "Back to Marketplace" button.
+- Grid of featured creator cards (2 cols mobile, 4 desktop) using the `creator_card` partial.
+- Empty state message when no featured profiles exist.
+- Standard pagination at the bottom.
+
+---
+
+## Step 4: Gallery Master Collection (gallery.blade.php)
+**Route:** `GET /marketplace/gallery` → `MarketPlaceController@gallery()`
+**Layout:** `@extends('layouts.app')`
+
+### Controller Logic (lines 1063-1071):
+
+1. Fetches all `MarketGallery` records that belong to active (`status = 1`) marketplace profiles.
+2. Orders by latest first.
+3. Paginates by 24 per page.
+
+### What the page shows:
+- "Master Collection" header with indigo badge and description.
+- Grid of gallery images (2 cols mobile, 4 desktop) with:
+  - 3:4 aspect ratio, rounded corners, hover zoom effect
+  - Permanent gradient overlay with creator avatar, name, role badge
+  - Each image is a direct link to the creator's portfolio page
+  - Custom styled pagination with hover effects and active state
+
+---
+
+## Step 5: Public Creator Portfolio (portfolio.blade.php)
+**Route:** `GET /m/{slug}` → `MarketPlaceController@portfolio($slug)`
+**Layout:** `@extends('layouts.app')`
+
+This is the most complex marketplace view (~990 lines). It is a full public portfolio/profile page for a creator.
+
+### Controller Logic (lines 201-218):
+
+1. Fetches a single marketplace profile by its `slug` field, eager-loading:
+   - `galleries` (portfolio gallery images)
+   - `services` (service offerings)
+   - `portfolios.images` (portfolio items with their images)
+
+2. If the current visitor is authenticated (logged into the main platform), fetches all messages between this user and the marketplace profile for the live chat feature.
+
+3. Returns the portfolio view with marketplace, messages, and page title.
+
+### Frontend subscription gating logic:
+
+At the top of the view, PHP logic determines what the visitor can see:
+```php
+$hasSubscription = auth()->check() && (
+    auth()->user()->purchasedPlans()->where('expired_date', '>', now())->exists()
+);
+$isOwner = session('marketplace_user_id') == $marketplace->id;
+$canView = $hasSubscription || $isOwner;
+```
+- **$hasSubscription**: The logged-in user has an active subscription plan
+- **$isOwner**: The currently logged-in marketplace creator is viewing their own profile
+- **$canView**: If either condition is true, premium content (contact details, messaging) is unlocked
+
+### What the page contains from top to bottom:
+
+**1. Cover Photo Area:**
+- Large banner image (48/64 on mobile/desktop) with object-cover styling
+- Gradient overlay (black to transparent) for text readability
+- Clicking the cover opens a SweetAlert2 lightbox modal for full-size viewing
+
+**2. Profile Header Section:**
+- **Avatar**: Large circular image (40-56 on desktop) with white border, clickable to open lightbox modal. Falls back to colored initials if no image.
+- **Name**: Displayed prominently with `line-clamp-2`
+- **Role Badge**: Blue pill showing the creator's profession type
+- **Business name**: Displayed below the name
+- **Location**: With location_on icon, truncated at 16 chars
+- **Experience**: Calendar icon + years displayed (cleaned up to remove redundant text)
+
+**3. Action Buttons Row:**
+- **Message Button**: 
+  - If `$canView` AND user is authenticated → opens message modal (chat interface)
+  - If `$canView` AND user is NOT authenticated → links to login page
+  - If NOT `$canView` → shows a lock icon with SweetAlert "Premium Feature" popup
+- **Share Button**: Calls `sharePortfolio()` JavaScript function with the current URL
+- **Social Links**: Facebook, Instagram, Twitter icons (if the creator has them configured), each with hover effects
+
+**4. Interactive Rating System:**
+A fully interactive star rating component using Alpine.js:
+- **State variables**: `rating` (user's rating, 0-5), `hoverRating` (during hover), `isSubmitting`, `avgRating`, `totalRatings`, `breakdown`
+- **Visual display**: 
+  - Left side: 5 clickable star buttons with hover effect (filled yellow on hover/selected, outline otherwise)
+  - Average rating score (e.g., "4.2 / 5") with total count badge
+  - Right side: Breakdown bars for 5/4/3/2/1 stars showing percentage fill
+- **Submission flow**: When a user clicks a star:
+  1. Sets `rating` to the selected value
+  2. POSTs to `marketplace.rating.submit` endpoint with the rating value
+  3. On success, updates `avgRating`, `totalRatings`, and `breakdown` from the server response
+  4. Shows a SweetAlert2 toast notification "Rating saved!"
+  5. If user is not logged in, redirects to login page
+
+**5. Stats Cards (3-column grid):**
+- Years of experience (with cleaned formatting)
+- Portfolio count (number of gallery images)
+- Skills count (parsed from comma-separated or array format)
+
+**6. Tabs Navigation:**
+Four tabs switchable via Alpine.js: About, Gallery, Portfolio, Services
+- Tab click updates `window.location.hash` for bookmarkable URLs
+- Active tab has red underline, inactive tabs are muted
+
+**7. About Tab:**
+- Biography text from `more_info` field with nl2br formatting
+- Social/professional links as icon buttons (Facebook, Instagram, Twitter, Website/Portfolio)
+- Each link auto-prepends `https://` if missing
+
+**8. Gallery Tab:**
+- 2-3 column grid of gallery images
+- Each image is clickable → opens lightbox modal (`galleryModal = true`)
+- Empty state: "No gallery images available"
+
+**9. Portfolio Tab:**
+- 1-2 column grid of portfolio items
+- Each item shows: first image as thumbnail (with "X Photos" badge), title, description excerpt
+- Click opens a full modal with:
+  - Image slider (prev/next buttons, progress bar)
+  - Title and description text
+  - Slide counter and navigation
+- Empty state message
+
+**10. Services Tab:**
+- 1-2 column grid of service offerings
+- Each service shows: icon image, service name, brief description
+- If `$canView`: Card links to WhatsApp with pre-filled message about the service
+- If NOT `$canView`: Card shows a lock icon and SweetAlert popup on click
+- Empty state: "No services listed"
+
+**11. Desktop Right Sidebar (hidden on mobile):**
+- "Available for Contact" status indicator with green dot
+- Contact Now button (links to tel: with the creator's phone)
+- Send Message button (opens message modal or login page)
+- Email and Phone display (locked if not `$canView`, says "Hidden (Premium Only)")
+- Social link icons
+- Website/Portfolio link
+
+**12. Message Modal (Bottom Sheet style):**
+- Full chat interface within a modal overlay
+- Shows conversation between the visitor (authenticated user) and the creator
+- Send reply, edit, delete messages
+- Auto-scrolls to latest message on open
+- User avatar and name in the header
+
+---
+
+## Step 6: Plan Preview Page (preview.blade.php)
+**Route:** `GET /marketplace/plan/preview/{id}` → `MarketPlaceController@previewPlan($id)`
+**Layout:** `@extends('layouts.app')`
+
+### Controller Logic (lines 739-744):
+
+1. Fetches the `UserPlan` by ID.
+2. Passes it to the preview view.
+
+### What the page shows:
+- A centered card with:
+  - Payment icon
+  - "Subscription Details" title
+  - Selected plan name
+  - Total amount display in large font (₹X.XX INR)
+  - Plan duration in days
+- A "Proceed to Payment" button that POSTs to `marketplace.payment.confirm`
+- Security notice at bottom
+
+---
+
+## Step 7: Creator Login (login.blade.php)
+**Route:** `GET /marketplace/login` → `MarketPlaceController@showLoginForm()`
+**Layout:** `@extends('layouts.app')`
+
+### Controller Logic:
+Simple method returning the login view (line 367).
+
+### What the page shows:
+- Centered card with account icon and "Account Login" title
+- Email input field using the `<x-input>` custom component
+- Password input with show/hide toggle
+- "Sign In" button with Alpine.js loading state (spinner + "Authenticating..." text)
+- POST to `marketplace.login`
+- Links to registration and password reset
+- "Safe & Secure Access" footer hint
+
+---
+
+## Step 8: Creator Registration (register.blade.php)
+**Route:** `GET /marketplace/register` → `MarketPlaceController@showRegistrationForm()`
+**Layout:** `@extends('layouts.app'`) with custom CSS overrides
+
+### Controller Registration Logic (lines 369-436):
+
+1. **Step 1 — Validate input**: Validates name, email (unique in market_places table, RFC DNS check), phone number (unique), password (min 8 chars, must have uppercase, lowercase, number, symbol — all confirmed), location, type (role), years_of_experience, bio, skills, URLs, business details, and both terms agreements.
+
+2. **Step 2 — Handle business type**: If `business_type === 'other'`, the custom value from `other_business_type` is used instead.
+
+3. **Step 3 — Create the record**: A new `MarketPlace` record is created with hashed password and status 1 (active).
+
+4. **Step 4 — Set session**: `session('marketplace_user_id')` is set to the new user's ID, logging them in immediately.
+
+5. **Step 5 — Send welcome email**: Calls `MailService::sendMailable()` with `MarketplaceWelcomeMail`. Failures are logged but don't block registration.
+
+6. **Step 6 — Handle errors**: Validation errors are re-thrown for Laravel to handle. Other exceptions are caught and return an error notification.
+
+### AJAX Availability Check Controller Logic (lines 438-456):
+- `checkAvailability()` accepts POST requests with `field` and `value`
+- For `email`: checks if email exists in market_places table
+- For `number`: checks if phone exists in market_places table
+- Returns JSON with error or success
+
+### Frontend Registration Wizard (3-Step Alpine.js Component):
+
+**Step 1 — Personal Information:**
+- **Full Name**: Text input with validation icon binding
+- **Email**: With AJAX availability check — `@input.debounce.500ms` calls `checkAvailability()` which POSTs to server and updates `errors.email`. Red error text displayed when taken.
+- **Password**: With real-time strength checklist showing:
+  - Min 8 characters (checkmark when met)
+  - One uppercase letter
+  - One lowercase letter
+  - One number
+  - One special character
+  - Show/hide toggle for password visibility
+- **Confirm Password**: With validation that it matches password
+- **Phone Number**: With AJAX availability check (same as email)
+- **Location**: Text input
+
+**Step 2 — Professional Profile:**
+- **Core Profession**: Dropdown with 40+ film industry roles
+- **Experience (Months)**: Number input with real-time conversion to human-readable format (e.g., "8" → "8 months", "24" → "2 years"). Displays a "Converted" badge dynamically.
+- **Bio**: Textarea for professional summary
+- **Skills Manager**: Chip-style input where user types a skill and clicks "Add" (or presses Enter). Skills appear as removable chips. Comma-separated string is stored in a hidden input.
+- **Portfolio URL**: Optional external link
+- **Website URL**: Optional official website
+
+**Step 3 — Finalize Account:**
+- **Business Name**: Required
+- **Business Type**: Dropdown (Individual, Studio, Production, Agency, Freelancer, Other). If "Other" is selected, a custom text input appears.
+- **Terms Checkboxes**: Two required agreements:
+  - Terms of Service & Privacy Policy (links open SweetAlert2 modals with AJAX-loaded content)
+  - Marketplace Terms & Conditions (same modal pattern)
+- **"Create Account" button**: Shows a SweetAlert2 loading spinner while form submits
+
+**Navigation**: Next/Previous buttons between steps with validation gating (Next button is disabled if current step is invalid). A stepper progress bar at the top shows 3 steps with animated gradient fill.
+
+---
+
+## Step 9: Terms & Conditions (terms.blade.php)
+**Route:** `GET /marketplace/terms` → (inline in routes/web.php)
+**Layout:** `@extends('layouts.app')`
+
+### Route Logic (routes/web.php lines 552-572):
+
+1. Fetches the terms content from `Frontend` model where `data_keys = 'marketplace_terms.content'`.
+2. If not found, creates a default entry with placeholder content.
+3. Returns the terms view.
+
+### What the page shows:
+- Card layout with gavel icon and "Professional Standards & Agreements" subtitle
+- Rendered HTML content from the CMS with styled prose (Tailwind Typography)
+- Footer with copyright and "Back to Registration" button
+
+---
+
+# PART B: CREATOR DASHBOARD
+
+## Step 10: Dashboard Shell (dashboard.blade.php)
+**Route:** `GET /marketplace/dashboard` → `MarketPlaceController@dashboard()`
+**Layout:** `@extends('layouts.app')`
+
+### Controller Logic (lines 566-608):
+
+1. **Authentication check**: If `session('marketplace_user_id')` is not set, redirects to login page.
+
+2. **Fetch creator data**: Loads the marketplace profile with eager-loaded `galleries`, `services`, and `contacts` relationships.
+
+3. **Fetch plans**: All `UserPlan` records.
+
+4. **Fetch subscriptions**: All subscriptions for this creator, latest first. Also identifies the active subscription (where `end_date > now()` OR `end_date IS NULL`).
+
+5. **Fetch transactions**: Deposit records where `marketplace_id` matches and has either a `plan_id` or detail JSON containing `marketplace_plan` type. Paginated at 10 per page.
+
+6. **Backfill plan names**: For old deposits that only store plan_id in detail JSON (not as a relation), the method loads the actual plan records and manually sets the relation.
+
+7. **Fetch messages**: All `MarketMessage` records for this creator, grouped by `user_id`, ordered by `created_at ASC`. This powers the messaging tab.
+
+8. **Calculate unread count**: Count of messages where `sender_type = 'user'` AND `is_read = 0`.
+
+### Frontend Alpine.js Architecture:
+
+The dashboard shell uses a sophisticated Alpine.js component with:
+- **`tab`**: Current active tab (syncs to `window.location.hash`)
+- **`sidebarOpen`**: Mobile sidebar toggle state
+- **`unreadCount`**: Real-time unread message count
+- **`activeChat`**: Currently selected chat user ID (for messages tab)
+- **`markMessagesRead()`**: Fires when messages tab is clicked — POSTs to `marketplace.messages.read` to mark all as read, then sets `unreadCount = 0`
+- **`editService`**: State for the edit service modal (open, id, name, brief, img)
+- **`planPurchase()`**: Spread operator imports Razorpay purchase functions from scripts.blade.php
+- **`transactionInvoice()`**: Spread operator imports invoice modal functions
+
+**Tab switching**: `x-init` validates the tab against valid options, then watches for changes to update the URL hash. `x-effect` manages mobile bottom navigation visibility (hides when in messaging chat view).
+
+### What the page contains:
+
+**Desktop Sidebar (hidden on mobile):**
+- "My Dashboard" title
+- "Back to Home" link
+- Navigation buttons for all 9 tabs: Dashboard, Profile, Gallery, Portfolio, Services, Messages, Contacts, Plans, Transactions
+- Each button has a Material Symbol icon, changes color when active, and the Messages tab shows an unread count badge
+- "View Live Profile" link opens the public portfolio in a new tab
+- Sign Out button at the bottom
+
+**Mobile Drawer (hidden on desktop):**
+- Same navigation but as a slide-out drawer using `x-teleport="body"` with backdrop blur
+- Transitions: slides in from left with ease-out, fades backdrop
+
+**Main Content Area:**
+- **Sticky Header**: Shows hamburger menu (mobile only), current tab name in large text, "Neural Station Active" status dot, and profile dropdown (avatar, name, type badge)
+- **Profile Dropdown**: "Live Profile" link, "Account Settings" button (switches to profile tab), Sign Out
+- **Scrollable Content Area**: Dynamically includes all 9 section partials, each shown/hidden based on `tab` state
+- **Bottom padding**: Extra padding for mobile bottom navigation bar
+
+---
+
+## Step 11: Dashboard Tab (sections/dashboard.blade.php)
+**Shown when:** `tab === 'dashboard'`
+
+### What the user sees:
+
+**Section 1 — "System Overview" Header:**
+- "System Overview" title with italic styling and orange accent on "Overview"
+- "Synchronizing profile metrics..." subtitle
+
+**Section 2 — Bento Stats Grid (4 cards in 2x2 layout):**
+
+**Card 1 — Welcome Bento (spans 2 columns):**
+- Dark background with orange glow effect
+- "Active" status indicator with green pulse dot
+- "Creative Journey." text with orange underline
+- "Manage portfolio assets in one hub." description
+- "Manage" CTA button that switches to Gallery tab
+
+**Card 2 — Status Bento (spans 2 columns):**
+- Orange-to-rose gradient background with animated mesh
+- "Verified" badge top-right
+- Subscription protocol section showing:
+  - Active plan name (e.g., "Basic Station")
+  - Start date and end date with calendar icons
+  - Progress bar with glow effect
+- Animated radial gradient overlay
+
+**Cards 3-6 — Metric Cards (2 each row):**
+- Assets count with photo_library icon
+- Services count with design_services icon
+- Inquiries count with mail icon
+- Network: Always shows "Elite"
+- Each card has an icon, label, count, and "Active" status
+
+---
+
+## Step 12: Profile Editor Tab (sections/profile.blade.php)
+**Shown when:** `tab === 'profile'`
+
+### What the user sees and can do:
+
+**Form action:** POSTs to `marketplace.profile.update` with multipart form data (for file uploads).
+
+**Section 1 — Media & Branding:**
+- **Profile Avatar**: Shows current image or initials fallback. File input with live preview via Alpine.js `URL.createObjectURL()`.
+- **Cover Photo**: File input with live preview thumbnail. Shows existing cover if available.
+
+**Section 2 — Personal Details:**
+- **Display Name**: Text input with person icon
+- **Location**: Text input with public icon
+
+**Section 3 — Professional Identity:**
+- **Core Profession**: Dropdown with same 40+ role options
+- **Experience (Months)**: Number input with real-time conversion to year format. Shows current value pre-populated by parsing the stored years_of_experience field back into months.
+- **Skills**: Comma-separated text input, pre-populated from array or string
+
+**Section 4 — Performance Metrics:**
+- **Projects Delivered**: Number input
+- **Satisfaction Rate (%)**: Number input (0-100, with decimal)
+
+**Section 5 — Business Presence:**
+- **Business Name**: Text input
+- **Business Type**: Dropdown with "Other" option that reveals a custom text input
+- **Website URL**: URL input with live validation (warns if doesn't start with http:// or https://)
+- **Social Links**: Facebook, Instagram, Twitter URL inputs with live validation and brand icons
+- **Professional Bio**: Textarea
+
+**Submit**: "Save Profile Changes" button at the bottom right.
+
+---
+
+## Step 13: Gallery Manager Tab (sections/gallery.blade.php)
+**Shown when:** `tab === 'gallery'`
+
+### What the user sees and can do:
+
+- "Portfolio Gallery" title with description
+- Grid of existing gallery images (2 cols mobile, 5 cols desktop) in rounded cards:
+  - Each image has overlay buttons on hover:
+    - **Edit button** (indigo): Click opens file selector — selecting a new image submits the update form inline
+    - **Delete button** (rose): Submits delete form immediately
+  - An empty slot at the end acts as an "Add Photo" button: dashed border, camera icon, "Add Photo" text. Clicking opens file selector and auto-submits.
+
+---
+
+## Step 14: Portfolio CRUD Tab (sections/portfolio.blade.php)
+**Shown when:** `tab === 'portfolio'`
+
+### View modes: List, Create, Edit (switched via Alpine.js `viewMode`)
+
+**List View (default):**
+- Grid of portfolio cards (1-3 cols) showing:
+  - First image as thumbnail with "X Photos" badge
+  - Title, description excerpt
+  - Active/Hidden status badge
+  - Edit button (switches to edit mode)
+  - Delete button with SweetAlert confirmation
+- "Add Portfolio" button to switch to create mode
+- Empty state with "No Portfolios Found" message
+
+**Create View:**
+- Form with:
+  - Title input
+  - Description textarea
+  - Multi-image upload with preview grid:
+    - Drag-drop zone or click to select
+    - Live previews with individual remove buttons
+    - File count display
+  - Status toggle (Active & Visible)
+- Cancel and Save buttons
+
+**Edit View (per portfolio):**
+- Pre-populated form with same fields as create
+- Existing images displayed with individual delete buttons (AJAX, with SweetAlert confirmation)
+- Additional image upload zone (appends to existing)
+- Cancel and Update buttons
+
+---
+
+## Step 15: Services Manager Tab (sections/services.blade.php)
+**Shown when:** `tab === 'services'`
+
+### What the user sees and can do:
+
+- Existing services listed in a 1-2 column grid:
+  - Service icon (image), name, brief description
+  - Edit button (opens the Edit Service modal via Alpine.js)
+  - Delete button (with SweetAlert loader)
+- "Add New" button scrolls to the creation form
+- Creation form at the bottom:
+  - Service Icon file upload
+  - Service Title input
+  - Service Details textarea
+  - Cancel and "Create Offering" buttons
+
+### Edit Service Modal (in modals.blade.php):
+- Opens as a floating modal with backdrop blur
+- Shows current icon with option to change
+- Pre-populated name and brief fields
+- Save button
+
+---
+
+## Step 16: Messaging System Tab (sections/messages.blade.php)
+**Shown when:** `tab === 'messages'`
+
+### Architecture:
+The messaging system is a full chat interface within the dashboard. Each conversation generates a unique Alpine.js component function (`chatPanel_{{ $userId }}()`) so each chat has its own isolated state.
+
+### What the user sees:
+
+**Left Sidebar — Contact List:**
+- "Messages" header
+- List of users who have sent messages, grouped by user:
+  - User avatar (or initials fallback)
+  - Full name
+  - Last message preview (truncated)
+  - Relative timestamp
+  - Active chat highlighted in red
+- Empty state: "No messages" with forum icon
+
+**Right Side — Chat Area:**
+- If no chat selected: Placeholder with "Your Messages" text
+- If chat selected:
+  - **Header**: User avatar, name, "View Profile" link
+  - **Message Thread**: Scrollable list of messages:
+    - Marketplace replies: Right-aligned, red background (bg-[#e04f3e]), white text
+    - User messages: Left-aligned, white background with border
+    - Each marketplace message has a three-dot menu with Edit and Delete
+    - Each message shows timestamp
+  - **Input Area**: Textarea with send button. When editing, shows "Editing message" indicator with Cancel button
+
+**Message Operations (AJAX):**
+- **Send**: POSTs to `marketplace.message.reply` — prepends new message HTML to the thread
+- **Edit**: POSTs to `marketplace.message.update/{id}` — updates the message text in-place
+- **Delete**: POSTs to `marketplace.message.delete/{id}` — removes the message element with SweetAlert confirmation
+- All operations return JSON responses
+
+**Unread count management**: When the messages tab is first opened, `markMessagesRead()` is called to mark all messages as read and update the badge.
+
+---
+
+## Step 17: Contact List Tab (sections/contacts.blade.php)
+**Shown when:** `tab === 'contacts'`
+
+### What the user sees:
+- "Client Inquiries" title
+- List of contact form submissions:
+  - User initial avatar (first letter)
+  - Name, email, date
+  - "View" button opens SweetAlert2 popup with the full message
+  - "Delete" button to remove the inquiry
+
+---
+
+## Step 18: Plans & Subscriptions Tab (sections/plans.blade.php)
+**Shown when:** `tab === 'plans'`
+
+### What the user sees:
+
+**Active Subscription Badge (if any):**
+- Dark card with indigo glow border
+- "Active Plan" label with "Expiring Soon" pulse animation if <=7 days left
+- Plan name, start date, "Days Left" count or "LIFETIME" status
+- Dynamic progress bar with gradient
+
+**Available Plans Grid:**
+- 4 plan cards in a grid (2 cols mobile, 4 desktop)
+- Each card: Plan name, duration, price, features list (from plan_content CSV)
+- "Featured" badge on featured plans
+- Subscribe button:
+  - If already subscribed to this plan: Disabled emerald badge saying "Subscribed"
+  - Otherwise: Click triggers `initiatePurchase()` which starts the Razorpay flow
+
+---
+
+## Step 19: Transactions Tab (sections/transactions.blade.php)
+**Shown when:** `tab === 'transactions'`
+
+### What the user sees:
+- "Transaction History" title
+- Full table (scrollable horizontally) with columns: #, Transaction ID, Plan, Amount, Payment method, Status, Invoice button
+- Status badges: Success (green), Pending (amber), Rejected (red)
+- "Invoice" button opens a modal with:
+  - Site name, invoice number
+  - Vendor details (name, email, business)
+  - Transaction details (ID, date, payment method, status)
+  - Plan & billing summary
+  - "Print" button
+- Pagination at bottom
+
+---
+
+# PART C: SHARED COMPONENTS & SCRIPTS
+
+## Step 20: Global Modals (sections/modals.blade.php)
+**Edit Service Modal:**
+- Floating modal with backdrop blur
+- Shows current service icon with change option
+- Pre-populated service name and brief
+- Form action dynamically set to `/marketplace/service/update/${editService.id}`
+- Save button with loader
+
+## Step 21: Global Scripts (sections/scripts.blade.php)
+**Razorpay Integration:**
+- Loads Razorpay checkout script from CDN
+- `planPurchase()` Alpine.js mixin:
+  - `initiatePurchase(planId)`: POSTs to `marketplace.plan.buy`, gets Razorpay order details, opens Razorpay checkout modal
+  - `verifyPayment(response, trx)`: POSTs to `marketplace.plan.verify`, handles success/error
+
+**Utility Functions:**
+- `uploadPortfolioImage()`: Shows SweetAlert upload spinner, submits the gallery form
+- `showServiceLoader()`: Generic SweetAlert loader for form submissions
+
+## Step 22: Reusable Partials
+
+### creator_card.blade.php
+**Used in:** Marketplace homepage grid, All profiles page, Featured page
+
+**What it shows:**
+1. **Top gradient background (40% height)**: Red-to-white gradient with optional cover photo behind (low opacity, blend mode)
+2. **Featured badge**: If the creator has featured access (is_featured=true or active featured plan)
+3. **Active dot**: Green circle with checkmark at top-right
+4. **Avatar**: Large circular image or colored initials fallback, overlapping the gradient section
+5. **Role pill**: Color-coded by profession type:
+   - Blue: Actor/Actress
+   - Green: Investor
+   - Purple: All others (default)
+6. **Name**: Bold, line-clamped at 2 lines
+7. **Bio**: Line-clamped at 3 lines
+8. **Details row**: Location (truncated at 16 chars), Rating (with star icon and count), Experience (cleaned formatting)
+9. **"View Profile" button**: Orange-to-red gradient (in light mode) or subtle white border (in dark mode)
+
+**Featured detection logic:**
+```php
+$isFeatured = $item->hasFeaturedAccess();
+```
+This checks if the profile is featured or has an active featured-plan subscription.
+
+### profiles_grid.blade.php
+**Used in:** Marketplace all page (AJAX-loaded content)
+
+Simple wrapper: loops through `$marketplaces` and renders each as `creator_card`. Shows empty state with "No Results Found" and a "Reset Filters" button.
+
+---
+
+# PART D: CONTROLLER LOGIC (MarketPlaceController.php)
+
+## Complete Method-by-Method Breakdown
+
+### Method 1: `index(Request $request)` — Marketplace Homepage
+**Route:** `GET /marketplace`
+**Lines:** 26-103
+
+**What it does:**
+1. Reads query parameters: `type`, `location`, `search`
+2. Builds two separate queries (featured + regular)
+3. Featured query: `MarketPlace::where('status', 1)` AND (`is_featured = true` OR has active subscription with featured plan)
+4. Regular query: `MarketPlace::where('status', 1)->where('is_featured', false)`
+5. Applies optional filters to both queries
+6. Limits: 8 featured (random), 24 regular (random)
+7. Checks for logged-in creator session
+8. Fetches gallery items and platform stats
+9. Returns view with all data
+
+### Method 2: `all(Request $request)` — All Profiles Page
+**Route:** `GET /marketplace/all`
+**Lines:** 108-168
+
+**What it does:**
+1. Reads query parameters: `type`, `search`, `filter`
+2. Builds base query on active profiles
+3. Applies type, featured, search filters as needed
+4. Sorts by subscription count (featured first) then latest
+5. Paginates 24 per page
+6. AJAX support: returns JSON with rendered HTML for seamless filtering
+
+### Method 3: `featured(Request $request)` — Featured Profiles Page
+**Route:** `GET /marketplace/featured`
+**Lines:** 173-196
+
+**What it does:**
+1. Queries active featured profiles (same featured logic)
+2. Orders by latest, paginates 15 per page
+3. Returns the featured view
+
+### Method 4: `portfolio($slug)` — Public Creator Portfolio
+**Route:** `GET /m/{slug}`
+**Lines:** 201-218
+
+**What it does:**
+1. Fetches marketplace profile by slug with eager-loaded galleries, services, and portfolios
+2. If visitor is authenticated, fetches message history with this creator
+3. Returns the portfolio view
+
+### Method 5: `storeContact(Request $request, $id)` — Contact Form Submission
+**Route:** `POST /marketplace/contact/{id}`
+**Lines:** 223-237
+
+**What it does:**
+1. Validates: name, email, optional phone/subject, message
+2. Creates a `MarketContact` record linked to the marketplace profile
+3. Returns back with success notification
+
+### Method 6: `sendMessage(Request $request, $id)` — User Sends Message
+**Route:** `POST /marketplace/message/{id}`
+**Lines:** 239-261
+
+**What it does:**
+1. Validates message text
+2. Creates a `MarketMessage` with `sender_type = 'user'`
+3. Returns JSON (for AJAX) or redirect (for form submit)
+
+### Method 7: `replyMessage(Request $request, $id)` — Creator Replies
+**Route:** `POST /marketplace/message/reply/{id}`
+**Lines:** 263-297
+
+**What it does:**
+1. Validates message and user_id
+2. Gets creator ID from session
+3. Creates `MarketMessage` with `sender_type = 'marketplace'`
+4. Sends notification to the user via `notify()` helper (email, SMS, push)
+5. Returns JSON or redirect
+
+### Method 8: `updateMessage(Request $request, $id)` — Edit Creator Message
+**Route:** `POST /marketplace/message/update/{id}`
+**Lines:** 299-313
+
+**What it does:**
+1. Validates message text
+2. Finds the message by ID, ensuring it belongs to this creator and is a marketplace-type message
+3. Updates the message text
+4. Returns JSON or redirect
+
+### Method 9: `deleteMessage(Request $request, $id)` — Delete Creator Message
+**Route:** `POST /marketplace/message/delete/{id}`
+**Lines:** 315-327
+
+**What it does:**
+1. Finds message by ID with ownership + sender_type check
+2. Deletes the message
+3. Returns JSON or redirect
+
+### Method 10: `userUpdateMessage(Request $request, $id)` — User Edits Message
+**Route:** `POST /marketplace/user-message/update/{id}`
+**Lines:** 329-342
+
+**What it does:** Same as updateMessage but for user-side messages (checks `user_id === auth()->id()` and `sender_type = 'user'`)
+
+### Method 11: `userDeleteMessage(Request $request, $id)` — User Deletes Message
+**Route:** `POST /marketplace/user-message/delete/{id}`
+**Lines:** 344-355
+
+**What it does:** Same as deleteMessage but for user-side messages
+
+### Method 12: `register(Request $request)` — Creator Registration
+**Route:** `POST /marketplace/register`
+**Lines:** 369-436
+
+**What it does:**
+1. Validates all 3 steps of registration data
+2. Creates MarketPlace record with hashed password
+3. Sets session to auto-login
+4. Sends welcome email (logged but non-blocking on failure)
+5. Redirects to dashboard
+
+### Method 13: `checkAvailability(Request $request)` — AJAX Duplicate Check
+**Route:** `POST /marketplace/check-availability`
+**Lines:** 438-456
+
+**What it does:** Checks if email or phone already exists in the database. Returns JSON error or success.
+
+### Method 14: `login(Request $request)` — Creator Login
+**Route:** `POST /marketplace/login`
+**Lines:** 458-471
+
+**What it does:**
+1. Validates email + password
+2. Looks up user by email, verifies password hash
+3. Sets session, redirects to dashboard
+4. On failure, returns with error notification
+
+### Method 15: `updateProfile(Request $request)` — Profile Update
+**Route:** `POST /marketplace/profile/update`
+**Lines:** 494-550
+
+**What it does:**
+1. Validates all profile fields including optional image uploads
+2. Processes avatar and cover image uploads via ImageHelper (R2 storage)
+3. Converts comma-separated skills string to array
+4. Handles "other" business type
+5. Updates the marketplace profile record
+
+### Method 16: `dashboard()` — Creator Dashboard
+**Route:** `GET /marketplace/dashboard`
+**Lines:** 566-608
+
+**What it does:**
+1. Checks authentication (redirects to login if not)
+2. Loads creator data with galleries, services, contacts
+3. Fetches plans, subscriptions (all + active)
+4. Fetches transactions with plan name backfill
+5. Fetches and groups messages by user
+6. Returns dashboard view
+
+### Method 17: `portfolioStore(Request $request)` — Create/Update Portfolio
+**Route:** `POST /marketplace/portfolio/store`
+**Lines:** 621-669
+
+**What it does:**
+1. Validates title, description, optional images
+2. If `portfolio_id` provided: updates existing portfolio
+3. If not: creates new portfolio
+4. Uploads images to R2 storage via ImageHelper
+5. Returns back with success notification
+
+### Method 18: `portfolioDelete($id)` — Delete Portfolio
+**Route:** `POST /marketplace/portfolio/delete/{id}`
+**Lines:** 671-684
+
+**What it does:** Deletes portfolio and all its images with ownership check.
+
+### Method 19: `portfolioImageDelete($id)` — Delete Single Portfolio Image
+**Route:** `POST /marketplace/portfolio/image/delete/{id}`
+**Lines:** 686-696
+
+**What it does:** Deletes a single image from a portfolio, with ownership check via relationship.
+
+### Method 20: `galleryStore(Request $request)` — Upload Gallery Image
+**Route:** `POST /marketplace/gallery/store`
+**Lines:** 698-711
+
+**What it does:** Validates and uploads a gallery image, creates MarketGallery record.
+
+### Method 21: `serviceStore(Request $request)` — Create Service
+**Route:** `POST /marketplace/service/store`
+**Lines:** 713-734
+
+**What it does:** Validates service image, name, brief. Uploads image, creates MarketService record.
+
+### Method 22: `buyPlan($id)` — Initiate Plan Purchase
+**Route:** `POST /marketplace/plan/buy/{id}`
+**Lines:** 758-879
+
+**What it does:**
+1. Validates creator is logged in
+2. Checks for existing active subscription (prevents duplicate)
+3. Creates a Deposit record with status 0 (pending)
+4. If plan price <= 0 (free plan):
+   - Creates subscription immediately
+   - Sets featured status if applicable
+   - Sends confirmation email
+   - Returns success with redirect
+5. If paid plan:
+   - Creates Razorpay order
+   - Returns JSON with order details for frontend checkout
+
+### Method 23: `verifyPlanPayment(Request $request)` — Verify Razorpay Payment
+**Route:** `POST /marketplace/plan/verify`
+**Lines:** 881-968
+
+**What it does:**
+1. Validates Razorpay payment ID, order ID, signature, and transaction reference
+2. Verifies payment signature via Razorpay API
+3. Captures payment if not already captured
+4. Updates Deposit status to 1 (success)
+5. Creates MarketSubscription record with calculated end date
+6. Sets featured status if plan is featured
+7. Sends plan activation email
+8. Returns JSON success
+
+### Method 24: `updateService(Request $request, $id)` — Update Service
+**Route:** `POST /marketplace/service/update/{id}`
+**Lines:** 969-996
+
+**What it does:** Validates and updates service name, brief, and optional image.
+
+### Method 25: `updateGallery(Request $request, $id)` — Update Gallery Image
+**Route:** `POST /marketplace/gallery/update/{id}`
+**Lines:** 998-1019
+
+**What it does:** Replaces a gallery image, deleting the old one first.
+
+### Method 26: `deleteGallery($id)` — Delete Gallery Image
+**Route:** `POST /marketplace/gallery/delete/{id}`
+**Lines:** 1021-1033
+
+**What it does:** Deletes gallery image and file from storage.
+
+### Method 27: `deleteService($id)` — Delete Service
+**Route:** `POST /marketplace/service/delete/{id}`
+**Lines:** 1035-1047
+
+**What it does:** Deletes service and its image.
+
+### Method 28: `deleteContact($id)` — Delete Contact Inquiry
+**Route:** `POST /marketplace/contact/delete/{id}`
+**Lines:** 1050-1058
+
+**What it does:** Deletes a contact inquiry.
+
+### Method 29: `gallery(Request $request)` — Master Gallery
+**Route:** `GET /marketplace/gallery`
+**Lines:** 1063-1071
+
+**What it does:** Fetches all gallery images from active profiles, paginated (24/page).
+
+### Method 30: `rateMarketplace(Request $request, $id)` — Submit Rating
+**Route:** `POST /marketplace/rating/{id}`
+**Lines:** 1076-1098
+
+**What it does:**
+1. Validates rating (1-5 integer)
+2. Uses `updateOrCreate` to create or update the rating
+3. Returns JSON with updated average rating, total count, and breakdown
+
+---
+
+# ROUTE MAP
+
+| Method | URI | Controller@Method | Middleware |
+|--------|-----|-------------------|------------|
+| GET | /marketplace | MarketPlaceController@index | web |
+| GET | /marketplace/all | MarketPlaceController@all | web |
+| GET | /marketplace/featured | MarketPlaceController@featured | web |
+| GET | /marketplace/gallery | MarketPlaceController@gallery | web |
+| GET | /m/{slug} | MarketPlaceController@portfolio | web |
+| GET | /marketplace/login | MarketPlaceController@showLoginForm | web |
+| POST | /marketplace/login | MarketPlaceController@login | web |
+| GET | /marketplace/register | MarketPlaceController@showRegistrationForm | web |
+| POST | /marketplace/register | MarketPlaceController@register | web |
+| POST | /marketplace/check-availability | MarketPlaceController@checkAvailability | web |
+| GET | /marketplace/dashboard | MarketPlaceController@dashboard | web |
+| POST | /marketplace/logout | MarketPlaceController@logout | web |
+| POST | /marketplace/profile/update | MarketPlaceController@updateProfile | web |
+| POST | /marketplace/gallery/store | MarketPlaceController@galleryStore | web |
+| POST | /marketplace/gallery/update/{id} | MarketPlaceController@updateGallery | web |
+| POST | /marketplace/gallery/delete/{id} | MarketPlaceController@deleteGallery | web |
+| POST | /marketplace/portfolio/store | MarketPlaceController@portfolioStore | web |
+| POST | /marketplace/portfolio/delete/{id} | MarketPlaceController@portfolioDelete | web |
+| POST | /marketplace/portfolio/image/delete/{id} | MarketPlaceController@portfolioImageDelete | web |
+| POST | /marketplace/service/store | MarketPlaceController@serviceStore | web |
+| POST | /marketplace/service/update/{id} | MarketPlaceController@updateService | web |
+| POST | /marketplace/service/delete/{id} | MarketPlaceController@deleteService | web |
+| POST | /marketplace/message/reply/{id} | MarketPlaceController@replyMessage | web |
+| POST | /marketplace/message/update/{id} | MarketPlaceController@updateMessage | web |
+| POST | /marketplace/message/delete/{id} | MarketPlaceController@deleteMessage | web |
+| POST | /marketplace/messages/read | MarketPlaceController@markMessagesRead | web |
+| POST | /marketplace/contact/{id} | MarketPlaceController@storeContact | web |
+| POST | /marketplace/contact/delete/{id} | MarketPlaceController@deleteContact | web |
+| POST | /marketplace/message/{id} | MarketPlaceController@sendMessage | web, auth |
+| POST | /marketplace/rating/{id} | MarketPlaceController@rateMarketplace | web, auth |
+| POST | /marketplace/user-message/update/{id} | MarketPlaceController@userUpdateMessage | web, auth |
+| POST | /marketplace/user-message/delete/{id} | MarketPlaceController@userDeleteMessage | web, auth |
+| GET | /marketplace/plan/preview/{id} | MarketPlaceController@previewPlan | web |
+| POST | /marketplace/plan/buy/{id} | MarketPlaceController@buyPlan | web |
+| POST | /marketplace/plan/verify | MarketPlaceController@verifyPlanPayment | web |
+| GET | /marketplace/terms | (inline in routes) | web |
+
+---
+
+---
+
+# IMPLEMENTATION GUIDE — How to Use & Extend the Marketplace Module
+
+This section is a **developer cookbook**. It explains how to set up, use, extend, and troubleshoot every piece of the marketplace module. Use this when you need to add new features, fix bugs, or understand the recommended patterns.
+
+---
+
+## 🚀 Quick Start — 5-Minute Setup
+
+### Prerequisites
+- Database tables migrated (see `database/migrations/` for `market_places`, `market_galleries`, `market_services`, `market_portfolios`, `market_messages`, `market_contacts`, `market_subscriptions`, `marketplace_ratings`)
+- Razorpay credentials in `.env`: `RAZORPAY_KEY`, `RAZORPAY_SECRET`
+- Storage (R2/S3) configured for image uploads
+
+### Step-by-step
+```php
+// 1. Register a creator (POST /marketplace/register)
+// Expects: name, email, password, password_confirmation, number, location,
+//          type (role), years_of_experience, bio, skills, business_name,
+//          business_type, terms_agreed, terms_conditions
+
+// 2. Log in (POST /marketplace/login)
+// Expects: email, password
+
+// 3. Update profile (POST /marketplace/profile/update)
+// Expects: Any + image/cover_image files
+// This is session-based auth — no Laravel auth guard used
+```
+
+### Session Auth Pattern
+```php
+// The marketplace uses its own session auth, NOT Laravel's auth()
+// To check if a creator is logged in:
+$creatorId = session('marketplace_user_id');
+$creator = MarketPlace::find($creatorId);
+
+// To log in:
+session(['marketplace_user_id' => $talent->id]);
+
+// To log out:
+session()->forget('marketplace_user_id');
+```
+
+---
+
+## 🧩 How to Use Each Part (Developer Perspective)
+
+### A) Public Pages Implementation
+
+#### Marketplace Homepage — How to Customize
+
+**Adding a new filter:**
+```php
+// In MarketPlaceController@index (around line 26):
+// 1. Read your new param
+$genre = $request->input('genre');
+
+// 2. Apply to both featured and regular queries
+if ($genre) {
+    $featuredQuery->where('genre', $genre);
+    $regularQuery->where('genre', $genre);
+}
+
+// 3. Add the dropdown to index.blade.php form
+// 4. The auto-submit onchange will handle the rest
+```
+
+**Adding a new section to the homepage:**
+1. Add your query to `MarketPlaceController@index` between steps 1G-1I
+2. Pass data via `compact()`
+3. Add Blade section to `index.blade.php` between the existing sections
+4. Follow existing CSS patterns (gradient backgrounds, rounded-xl cards)
+
+#### All Profiles Page — AJAX Pattern
+
+The `all()` method is the primary **API for AJAX filtering**. Use this pattern when you need to filter data without page reload:
+
+```php
+// How to implement a new filter on the All Profiles page:
+
+// 1. Controller (MarketPlaceController@all):
+$experience = $request->input('experience');
+if ($experience) {
+    $query->where('years_of_experience', '>=', $experience);
+}
+
+// 2. Alpine.js component in all.blade.php — add a new state variable:
+//    experience: null,
+//    setExperience(val) { this.experience = val; this.fetchProfiles(); }
+
+// 3. Add to buildFilterUrl() in the Alpine.js component:
+//    params.set('experience', this.experience);
+```
+
+**How AJAX pagination works:**
+```php
+// The fetchProfiles() Alpine method manually adds ?page= to the URL
+// But the pagination links at the bottom are standard <a href="?page=2">
+// LINKS — these do a full page load, not AJAX
+// To make them AJAX too, add @click.prevent="fetchPage(page)" to paginator links
+```
+
+#### Creator Portfolio — Subscription Gating Pattern
+
+This is the most important security pattern. Reuse it anywhere premium content needs protection:
+
+```php
+// Standard gating pattern to copy-paste:
+$hasSubscription = auth()->check() && auth()->user()->purchasedPlans()
+    ->where('expired_date', '>', now())->exists();
+$isOwner = session('marketplace_user_id') == $marketplace->id;
+$canView = $hasSubscription || $isOwner;
+
+// In Blade:
+@if($canView)
+    {{-- Show premium content --}}
+@else
+    <div @click="Swal.fire({ title: 'Premium Feature', ... })">
+        {{-- Locked placeholder --}}
+    </div>
+@endif
+```
+
+**To add gating to a new feature:**
+1. Add `$hasSubscription`, `$isOwner`, `$canView` to your controller
+2. Pass them to the view
+3. Wrap premium elements in `@if($canView)`
+4. Add a SweetAlert2 popup for the locked state
+
+#### Rating System — How to Implement Elsewhere
+
+The rating component is reusable. To add ratings to any model:
+
+```php
+// 1. Create a ratings table (migration):
+//    id, rateable_id, rateable_type, user_id, rating (1-5)
+
+// 2. Add morphMany to the model:
+public function ratings() {
+    return $this->morphMany(Rating::class, 'rateable');
+}
+
+// 3. Use the same Alpine.js pattern from portfolio.blade.php:
+//    x-data="ratingComponent({{ $model->avgRating }}, {{ $model->ratings->count() }})"
+//    The stars, hover effect, breakdown bars can be copied verbatim
+```
+
+---
+
+### B) Creator Dashboard Implementation
+
+#### Dashboard Architecture Pattern
+
+The dashboard is a **shell + section** architecture. Each tab is a separate Blade partial in `sections/`. To add a new tab:
+
+```php
+// 1. Create new section file: resources/views/frontend/marketplace/sections/mytab.blade.php
+// 2. In dashboard.blade.php Alpine.js x-data, add your tab name to validTabs
+// 3. Add nav button in the sidebar
+// 4. Add @include in the content area, conditionally shown/hidden
+// 5. In MarketPlaceController@dashboard, fetch and pass the new data
+```
+
+**State management tip:** Each tab's data is loaded ONCE when the dashboard loads. If your tab needs live data, use Alpine.js `x-init` to fire an AJAX request when the tab becomes active:
+
+```js
+x-init="() => { $watch('tab', (val) => { if (val === 'mytab') fetchMyData(); }) }"
+```
+
+#### Message System — How to Integrate External Chat
+
+The messaging system uses `MarketMessage` model. To integrate a third-party chat (e.g., Pusher):
+
+```php
+// In MarketPlaceController@replyMessage, after creating the message:
+// Broadcast to Pusher:
+$pusherData = [
+    'message' => $message->message,
+    'sender' => 'marketplace',
+    'timestamp' => $message->created_at->toISOString(),
+];
+event(new MarketMessageSent($message, $pusherData));
+
+// In sections/messages.blade.php, listen via Echo:
+// window.Echo.private(`marketplace.${creatorId}`)
+//     .listen('MarketMessageSent', (e) => { appendMessage(e); });
+```
+
+#### Portfolio CRUD — Multi-Image Upload Pattern
+
+```php
+// How image uploads work in portfolioStore():
+// 1. Client sends FormData with multiple files under name "images[]"
+// 2. Controller loops:
+foreach ($request->file('images', []) as $image) {
+    $imagePath = ImageHelper::uploadImage($image, 'marketplace/portfolio');
+    MarketPortfolioImage::create([
+        'market_portfolio_id' => $portfolio->id,
+        'image' => $imagePath,
+    ]);
+}
+// 3. Always validate: max:10, mimes:jpg,jpeg,png,webp, max:2048
+```
+
+**To reuse multi-image upload elsewhere:**
+- Copy the `<input type="file" name="images[]" multiple>` + preview grid from `sections/portfolio.blade.php`
+- Copy the `portfolioStore()` handler, replacing the model name
+- The Alpine.js preview logic (`previewImages()`) creates object URLs for live thumbnails
+
+---
+
+### C) Razorpay Payment Flow
+
+#### How to Add a New Paid Feature
+
+The Razorpay flow has 3 parts. To add a new purchase type:
+
+```php
+// PART 1 — Initiate (Controller, e.g., buyPlan()):
+// 1. Create a pending transaction
+$deposit = Deposit::create([
+    'marketplace_id' => $creatorId,
+    'amount' => $plan->plan_price,
+    'status' => 0, // pending
+    'trx' => 'MP-' . uniqid(),
+]);
+
+// 2. If free, skip Razorpay
+if ($plan->plan_price <= 0) {
+    // Activate immediately
+    return response()->json(['success' => true, 'redirect' => '/marketplace/dashboard']);
+}
+
+// 3. For paid, create Razorpay order
+$razorpayOrder = Razorpay::order([
+    'amount' => $plan->plan_price * 100, // paise
+    'currency' => 'INR',
+    'receipt' => $deposit->trx,
+]);
+
+return response()->json([
+    'order_id' => $razorpayOrder['id'],
+    'amount' => $plan->plan_price * 100,
+    'key' => env('RAZORPAY_KEY'),
+]);
+
+// PART 2 — Frontend (in scripts.blade.php):
+// The initiatePurchase() function opens Razorpay checkout modal.
+// Copy the entire planPurchase() mixin — it handles all Razorpay lifecycle events.
+
+// PART 3 — Verification (Controller, e.g., verifyPlanPayment()):
+// 1. Verify signature: hash_equals(sha256(order_id + '|' + payment_id), secret)
+// 2. Update deposit status to 1
+// 3. Activate the subscription (create MarketSubscription record)
+// 4. Return JSON success
+```
+
+**Testing payments in development:**
+```php
+// Razorpay test mode — use these test cards:
+// - 4111 1111 1111 1111 (Visa success)
+// - 4000 0000 0000 0002 (Visa failure)
+// - Any future expiry date, any CVV
+
+// In razorpay checkout options:
+// options.key = env('RAZORPAY_KEY') // Test key from Razorpay dashboard
+```
+
+---
+
+## 🏗️ How to Extend the Module
+
+### Adding a New Model
+
+```php
+// 1. Migration
+Schema::create('market_reviews', function (Blueprint $table) {
+    $table->id();
+    $table->foreignId('marketplace_id')->constrained()->cascadeOnDelete();
+    $table->text('review');
+    $table->boolean('is_approved')->default(false);
+    $table->timestamps();
+});
+
+// 2. Model
+class MarketReview extends Model
+{
+    protected $fillable = ['marketplace_id', 'review', 'is_approved'];
+    
+    public function marketplace(): BelongsTo
+    {
+        return $this->belongsTo(MarketPlace::class);
+    }
+}
+
+// 3. Relationship on MarketPlace
+public function reviews(): HasMany
+{
+    return $this->hasMany(MarketReview::class);
+}
+
+// 4. Controller method
+public function storeReview(Request $request, $id)
+{
+    $marketplace = MarketPlace::findOrFail($id);
+    $marketplace->reviews()->create($request->validate([
+        'review' => 'required|string|max:1000',
+    ]));
+    return back()->with('success', 'Review submitted for approval.');
+}
+
+// 5. Route (add to web.php)
+Route::post('/marketplace/review/{id}', [MarketPlaceController::class, 'storeReview']);
+
+// 6. View — add to portfolio.blade.php as a new section below the rating system
+```
+
+### Adding a New Tab to Dashboard
+
+```php
+// 1. Controller — add data fetch in dashboard():
+$reviews = $talent->reviews()->latest()->get();
+// Then add to compact()
+
+// 2. Create sections/reviews.blade.php with your tab UI
+
+// 3. In dashboard.blade.php Alpine.js:
+//    - Add 'reviews' to validTabs at init
+//    - Add sidebar button in the nav list (copy existing pattern)
+//    - Add @include('frontend.marketplace.sections.reviews') in content area
+//      with x-show="tab === 'reviews'"
+
+// 4. For the mobile drawer same nav — add the button there too
+```
+
+### Adding a New Route
+
+```php
+// Route patterns used in this module:
+
+// Public GET (no auth):
+Route::get('/marketplace/my-new-page', [MarketPlaceController::class, 'myNewPage']);
+
+// Auth-not-required but session-aware:
+// Use middleware only for methods that require login
+// The controller checks session internally
+
+// POST with session auth:
+Route::post('/marketplace/my-action', [MarketPlaceController::class, 'myAction']);
+
+// With Laravel auth (for main platform users, not creators):
+Route::post('/marketplace/message/{id}', [MarketPlaceController::class, 'sendMessage'])
+    ->middleware('auth'); // This is the Laravel auth guard, NOT marketplace session
+```
+
+---
+
+## 🧪 Testing Guide
+
+### Manual Testing Checklist
+
+**Registration Flow:**
+- [ ] Email AJAX availability works (returns "Email already exists" for duplicates)
+- [ ] Password strength checklist shows/hides correctly
+- [ ] Phone number AJAX availability works
+- [ ] Step navigation (Next/Previous) enforces validation
+- [ ] Submitting with invalid data shows errors
+- [ ] Creating account sets session and redirects to dashboard
+- [ ] Welcome email is sent (check mailtrap/logs)
+
+**Profile Portfolio Page:**
+- [ ] Loading a valid slug shows the profile
+- [ ] Loading an invalid slug shows 404
+- [ ] Star rating submits correctly and updates average
+- [ ] Premium content is hidden when not subscribed
+- [ ] Premium content is visible when subscribed
+- [ ] Message modal opens for authenticated users
+- [ ] "Share" button copies URL to clipboard
+- [ ] Gallery lightbox opens on image click
+- [ ] Portfolio image slider navigates correctly
+
+**Creator Dashboard:**
+- [ ] Each tab loads its content
+- [ ] Profile form saves correctly (including image uploads)
+- [ ] Gallery add/update/delete works (image goes to R2)
+- [ ] Portfolio create/edit/delete works with multi-image
+- [ ] Services CRUD works
+- [ ] Messaging: send, edit, delete messages (both sides)
+- [ ] Unread count updates after reading messages
+- [ ] Plans: Razorpay flow completes successfully
+- [ ] Transaction history shows with correct data
+
+### Common Issues & Debugging
+
+| Symptom | Likely Cause | Fix |
+|---------|-------------|-----|
+| "Undefined session" on dashboard | Session expired or not logged in | Check `session('marketplace_user_id')` is set |
+| Images not uploading | R2 credentials missing or wrong path | Verify `ImageHelper::uploadImage()` destination config |
+| Razorpay "Signature mismatch" | Wrong secret key | Double-check `RAZORPAY_SECRET` in `.env` |
+| Registration fails silently | Validation rule mismatch | Check `MarketPlace` model `$fillable` includes all fields |
+| Messages not appearing | Wrong `sender_type` value | Must be `'user'` or `'marketplace'` — check database |
+| Gallery images not in portfolio | Eager loading missing | Add `->with('galleries')` to the profile query |
+| "Featured" not working | Featured access logic outdated | Verify `hasFeaturedAccess()` on MarketPlace model |
+| AJAX filter not updating | Alpine.js fetchProfiles() URL wrong | Check `buildFilterUrl()` includes all query params |
+
+---
+
+## 📁 File Structure Reference
+
+```
+app/Http/Controllers/
+└── MarketPlaceController.php          # All 30 methods inline (no service layer)
+
+app/Models/
+├── MarketPlace.php                    # Creator profile model
+├── MarketGallery.php                  # Gallery images
+├── MarketService.php                  # Services
+├── MarketPortfolio.php                # Portfolio items
+├── MarketPortfolioImage.php           # Portfolio images
+├── MarketMessage.php                  # Chat messages
+├── MarketContact.php                  # Contact inquiries
+├── MarketSubscription.php             # Plan subscriptions
+├── MarketplaceRating.php              # Star ratings
+└── UserPlan.php                       # Available plan definitions (shared with main app)
+
+resources/views/frontend/marketplace/
+├── index.blade.php                    # Homepage (section-based with Alpine.js carousel)
+├── all.blade.php                      # All profiles with AJAX filter
+├── featured.blade.php                 # Featured profiles
+├── gallery.blade.php                  # Master gallery
+├── portfolio.blade.php                # Public portfolio (~990 lines)
+├── preview.blade.php                  # Plan payment preview
+├── login.blade.php                    # Creator login
+├── register.blade.php                 # 3-step registration wizard
+├── terms.blade.php                    # Terms & conditions
+├── dashboard.blade.php                # Dashboard shell (tab-based)
+├── partials/
+│   ├── creator_card.blade.php         # Reusable profile card
+│   └── profiles_grid.blade.php        # Grid wrapper for AJAX
+└── sections/
+    ├── dashboard.blade.php            # Bento overview tab
+    ├── profile.blade.php              # Profile editor tab
+    ├── gallery.blade.php              # Gallery manager tab
+    ├── portfolio.blade.php            # Portfolio CRUD tab
+    ├── services.blade.php             # Services tab
+    ├── messages.blade.php             # Messaging tab
+    ├── contacts.blade.php             # Contact inquiries tab
+    ├── plans.blade.php                # Plans & subscriptions tab
+    ├── transactions.blade.php         # Transaction history tab
+    ├── modals.blade.php               # Edit Service modal
+    └── scripts.blade.php              # Razorpay + utility JS
+```
+
+---
+
+## 🧠 Architecture Decisions & Patterns
+
+**Why session-based auth instead of Laravel auth?**
+The marketplace has its own user model (MarketPlace) separate from the main platform's User model. Using a separate session key avoids conflicts and allows creators to be logged into both systems simultaneously.
+
+**Why all logic in the controller (no service layer)?**
+This was built as a self-contained module. The controller is the single source of truth for all marketplace business logic. If you extract it to a service layer, put all methods in `MarketplaceService` and call them from the controller.
+
+**Why Blade sections instead of Livewire?**
+The dashboard predates Livewire adoption in this project. Each tab is a separate include because the dashboard loads ALL tabs on initial page load then shows/hides them via Alpine.js. For very heavy tabs, consider lazy-loading via AJAX.
+
+**Why Razorpay-specific (not abstract gateway)?**
+Razorpay is the only payment processor used. To add a new gateway (Stripe, PayPal):
+1. Create a new method `buyPlanStripe()` that creates a Stripe Checkout Session
+2. Add a new verification endpoint `verifyStripePayment()`
+3. Add a frontend button that redirects to Stripe instead of opening Razorpay modal
+
+---
+
+# DATA MODELS REFERENCE
+
+| Model | Table | Key Fields |
+|-------|-------|------------|
+| MarketPlace | market_places | id, name, email, number, password, slug, type, location, image, cover_image, years_of_experience, skills, more_info, business_name, business_type, website_url, portfolio_url, facebook_link, instagram_link, twitter_link, is_featured, featured_until, status |
+| MarketGallery | market_galleries | id, marketplace_id, market_gallery |
+| MarketService | market_services | id, marketplace_id, service_img, service_name, service_brief |
+| MarketPortfolio | market_portfolios | id, marketplace_id, title, description, status, sort_order |
+| MarketPortfolioImage | market_portfolio_images | id, market_portfolio_id, image |
+| MarketMessage | market_messages | id, marketplace_id, user_id, sender_type, message, is_read |
+| MarketContact | market_contacts | id, marketplace_id, name, email, phone, subject, message |
+| MarketSubscription | market_subscriptions | id, marketplace_id, plan_id, plan_name, plan_price, plan_duration, start_date, end_date |
+| MarketplaceRating | marketplace_ratings | id, marketplace_id, user_id, rating |
+| UserPlan | user_plans | id, plan_name, plan_price, plan_duration, plan_content, is_featured_plan |
+
+---
+
+*End of Marketplace Documentation — All 23 Blade files + 30 controller methods fully documented.*

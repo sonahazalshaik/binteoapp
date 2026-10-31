@@ -1,0 +1,114 @@
+﻿================================================================================
+   BINTEO - VIDEO & REEL CONTROLLERS REPORT
+   Generated: 24 Aug 2026 | Scope: video/reel controllers, methods,
+   related middleware & views only
+================================================================================
+
+1. WEB VIDEO CONTROLLER - app\Http\Controllers\Web\VideoController.php
+--------------------------------------------------------------------------------
+showInPlaylist() .... Video playback inside a playlist context
+showVirtualPlaylist() Auto-generated playlist playback
+show() .............. Main watch page (paywall/access checks via VideoService)
+related() ........... Related videos feed
+download() .......... Video download (proxied through PHP)
+recordAdImpression(). Ad impression -> video_earnings daily revenue accrual
+history() ........... Watch history page
+removeHistory() ..... Remove single history item
+removeReelHistory() . Remove reel from history
+clearHistory() ...... Clear all watch history
+liked() ............. User's liked videos
+watchLater() ........ Watch later list
+create() ............ Upload wizard page (frontend/videos/create.blade.php)
+store() ............. LEGACY local-file upload path (non-Bunny)
+toggleLike() ........ Video like/unlike
+createOrder() ....... PPV Razorpay order creation
+purchase() .......... PPV purchase verify + creator commission credit
+trending() .......... Trending videos page
+notInterested() ..... Not-interested feedback
+report() ............ Report a video
+recordImpression() .. View impression tracking
+
+2. WEB REEL CONTROLLER - app\Http\Controllers\Web\ReelController.php
+--------------------------------------------------------------------------------
+index() ............. Reels feed (ReelService::index)
+show() .............. Single reel page
+create() ............ Reel upload wizard page (reels/create.blade.php)
+searchMusic() ....... Global music search for reel audio
+store() ............. Legacy local reel save
+like() .............. Reel like toggle
+comment() ........... Post reel comment
+likeComment() ....... Like reel comment
+updateComment() ..... Edit reel comment
+deleteComment() ..... Delete reel comment
+share() ............. Share handling
+report() ............ Report a reel
+recordView() ........ Reel view counting
+logDwell() .......... Dwell-time telemetry
+getComments() ....... Reel comments list
+watchLater() ........ Reel watch later
+info() .............. Reel metadata endpoint
+audio() ............. Reel audio page (original sound)
+togglePinComment() .. Pin/unpin comment
+
+3. WEB REEL ACTION CONTROLLER - app\Http\Controllers\Web\ReelActionController.php
+--------------------------------------------------------------------------------
+Lightweight AJAX actions for the reels feed (like/comment quick actions).
+
+4. UPLOAD PIPELINE CONTROLLERS [VERIFIED THIS SESSION]
+--------------------------------------------------------------------------------
+BunnyUploadController.php (Web) .... prepareUpload / prepareReelUpload /
+                                     thumbnails / checkStatus / logError
+DirectUploadController.php (Web) ... Server-side fallback -> existing bunny_id
+TusProxyController.php (root) ...... Same-origin TUS proxy to Bunny CDN
+
+5. ADMIN VIDEO/REEL CONTROLLERS
+--------------------------------------------------------------------------------
+Admin\VideoController.php (17.1KB) . Admin video review/approval console
+Admin\ManageVideoController.php .... index, regular, shorts, stock, free,
+                                     draft, published, rejected, public,
+                                     private, featured, trending,
+                                     toggleFeatured, toggleTrending, create,
+                                     store, videoData, edit, update,
+                                     validation, analytics, filterData,
+                                     checkSlug
+Admin\ManageReelController.php ..... index, published, draft, rejected,
+                                     trending, liked, duets, reelData, create,
+                                     store, edit, update, approve, reject,
+                                     destroy, toggleTrending, deleteThumbnail,
+                                     bulk
+Admin\VideoInteractionController ... Likes/comments moderation views
+Admin\VideoResolutionController .... Video resolution/complaint handling
+Admin\VideoProcessingController .... Re-trigger local processing jobs
+Admin\VideoCommissionController .... PPV commission ledger listing
+
+6. RELATED MIDDLEWARE (video/reel specific)
+--------------------------------------------------------------------------------
+CheckModerationStrikes ............. Blocks uploads at >=3 copyright strikes
+CheckModerationNotices ............. Forces moderation notice acknowledgment
+ThrottleVideoViews ................. View-count spam limiter
+XssSanitization .................... Excluded ONLY for /tus-proxy/*
+
+7. RELATED VIEWS
+--------------------------------------------------------------------------------
+frontend\videos\: create.blade.php (upload wizard [MODIFIED]), show.blade.php,
+                  partials (cards/edit)
+frontend\reels\: create.blade.php (upload wizard [MODIFIED]), index.blade.php
+                 (feed), show, partials
+admin\videos\: 6 files (list/edit/moderation/analytics)
+admin\reels\: 4 files (list/edit/moderation)
+components\: video_card, reel_card related partials
+
+8. KEY SERVICES BEHIND THESE CONTROLLERS
+--------------------------------------------------------------------------------
+app\Services\Frontend\VideoService.php ... getVideoData/show access resolution,
+                                           PPV purchase logic, like toggles
+app\Services\Frontend\ReelService.php .... Feed queries, comments, likes
+app\Services\Frontend\UploadService.php .. prepareUpload/prepareReelUpload,
+                                           direct fallback uploads, status
+app\Services\BunnyStreamService.php ...... Bunny API client + TUS signatures
+app\Jobs\ProcessVideo.php ................ Legacy FFmpeg HLS (skips Bunny)
+app\Jobs\CompressReel.php ................ Reel compression (fallback path)
+
+================================================================================
+END OF REPORT
+================================================================================

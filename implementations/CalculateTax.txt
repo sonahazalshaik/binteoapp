@@ -1,0 +1,172 @@
+╔══════════════════════════════════════════════════════════════╗
+║          CalculateTax - Tax Calculation Logic               ║
+║           Shared by Web + API controllers                   ║
+╚══════════════════════════════════════════════════════════════╝
+
+PURPOSE:
+  Calculates tax (GST/VAT/Sales Tax) based on subtotal,
+  customer location, and product category.
+
+╔══════════════════════════════════════════════════════════════╗
+║  ⚠  DO'S & DON'TS                                          ║
+║  This is a REFERENCE for new features. Existing tax-related ║
+║  logic (e.g., commission calculations in VideoController,   ║
+║  deposit charges) is unchanged.                             ║
+╚══════════════════════════════════════════════════════════════╝
+
+  ✅ DO's:
+  • Use this service for NEW checkout/order features.
+  • Extend TaxRate model if you add location-based tax tables.
+  • Cache tax rates that rarely change.
+
+  ❌ DON'Ts:
+  • DON'T modify existing commission calculations in
+    VideoController::purchase — the PPV split logic works.
+  • DON'T change gs('tax_percentage') or existing settings
+    without verifying all dependent code.
+  • DON'T assume TaxRate model exists — it's for new features.
+
+METHODS:
+  ┌─────────────────────────────────────────────────────────┐
+  │ calculateTax(float $subtotal, array $location): array   │
+  │ getTaxRate(string $country, string $state): float       │
+  │ isTaxExempt(array $productCategories): bool             │
+  │ getAvailableTaxRates(): array                           │
+  └─────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════
+  PHP SERVICE (app/Services/CalculateTaxService.php)
+══════════════════════════════════════════════════════════════
+
+<?php
+
+namespace App\Services;
+
+use App\Models\TaxRate;
+use Illuminate\Support\Facades\Cache;
+
+class CalculateTaxService
+{
+    /**
+     * Calculate tax for a given subtotal and location.
+     *
+     * @param float $subtotal  Pre-tax amount
+     * @param array $location  {country, state, city?, zip?}
+     * @return array {
+     *     subtotal: float,
+     *     tax_rate: float,
+     *     total_tax: float,
+     *     breakdown: [{name, rate, amount}],
+     *     currency: string
+     * }
+     */
+    public function calculateTax(float $subtotal, array $location): array
+    {
+        $taxRate = $this->getTaxRate(
+            $location['country'] ?? 'US',
+            $location['state'] ?? ''
+        );
+
+        $taxAmount = round($subtotal * $taxRate, 2);
+
+        return [
+            'subtotal' => $subtotal,
+            'tax_rate' => $taxRate,
+            'total_tax' => $taxAmount,
+            'breakdown' => [
+                [
+                    'name' => $this->getTaxName($location['country'] ?? 'US'),
+                    'rate' => $taxRate,
+                    'amount' => $taxAmount,
+                ],
+            ],
+            'currency' => gs('cur_text') ?? 'USD',
+            'country' => $location['country'] ?? 'US',
+            'state' => $location['state'] ?? '',
+        ];
+    }
+
+    /**
+     * Get the applicable tax rate for a location.
+     *
+     * Tax rates are calculated from GeneralSetting or TaxRate model:
+     *   - gs('tax_percentage') as fallback
+     *   - TaxRate::where('country', $country)->where('state', $state) for granular
+     *
+     * @param string $country  2-letter ISO code
+     * @param string $state    2-letter state code
+     * @return float  Rate as decimal (e.g., 0.10 for 10%)
+     */
+    public function getTaxRate(string $country, string $state = ''): float
+    {
+        // ── 1. Check for location-specific rate from DB ──
+        $rate = TaxRate::where('country', $country)
+            ->when($state, function ($q) use ($state) {
+                return $q->where('state', $state);
+            })
+            ->value('rate');
+
+        if ($rate !== null) {
+            return (float) $rate;
+        }
+
+        // ── 2. Country-level fallback ──
+        $rate = TaxRate::where('country', $country)
+            ->whereNull('state')
+            ->value('rate');
+
+        if ($rate !== null) {
+            return (float) $rate;
+        }
+
+        // ── 3. Global default from settings ──
+        return (float) (gs('tax_percentage') ?? 0) / 100;
+    }
+
+    /**
+     * Check if a set of product categories are tax-exempt.
+     */
+    public function isTaxExempt(array $productCategoryIds): bool
+    {
+        $exemptCategories = Cache::remember('tax_exempt_categories', 3600, function () {
+            return \App\Models\Category::where('is_tax_exempt', true)
+                ->pluck('id')
+                ->toArray();
+        });
+
+        foreach ($productCategoryIds as $catId) {
+            if (in_array($catId, $exemptCategories)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Get human-readable tax name per country.
+     */
+    public function getTaxName(string $country): string
+    {
+        $names = [
+            'US' => 'Sales Tax',
+            'IN' => 'GST',
+            'GB' => 'VAT',
+            'AU' => 'GST',
+            'CA' => 'HST',
+            'AE' => 'VAT',
+            'SG' => 'GST',
+            'EU' => 'VAT',
+        ];
+
+        return $names[$country] ?? 'Tax';
+    }
+
+    /**
+     * Get all available tax rates for admin settings.
+     */
+    public function getAvailableTaxRates(): array
+    {
+        return TaxRate::orderBy('country')->orderBy('state')->get()->toArray();
+    }
+}

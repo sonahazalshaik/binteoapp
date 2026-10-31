@@ -1,0 +1,174 @@
+PHASE 1 & 2 - FINAL READ-ONLY CODE REVIEW
+Cloudflare Worker + Bunny Storage + ffmpeg.wasm
+Date: 2026-08-29
+Project: new-youtube (Reel System)
+Status: Pre-Worker Deployment Review
+
+================================================================
+1. SECRET LEAK CHECK
+================================================================
+Search: BUNNY_STORAGE_ACCESS_KEY, bunny_reels_storage_access_key, BUNNY_STREAM_API_KEY, WORKER_SIGNING_SECRET, AccessKey
+
+FINDINGS:
+
+Server-Side ONLY (SAFE):
+- .env: WORKER_SIGNING_SECRET, WORKER_UPLOAD_URL, BUNNY_STREAM_API_KEY => server env, not exposed
+- config/bunny.php: worker_url, worker_signing_secret, storage_zone => reads env, safe
+- app/Services/BunnyStorageAuthService.php: reads WORKER_SIGNING_SECRET via env()/config, generates HMAC, never returns secret
+- app/Http/Controllers/Api/ReelStorageAuthController.php: uses gs('bunny_reels_storage_access_key') for HEAD/DELETE verify, secret stays server-side, never in json response
+- workers/reels-upload/src/index.js: env.BUNNY_STORAGE_ACCESS_KEY, env.WORKER_SIGNING_SECRET, env.BUNNY_STORAGE_ZONE => Worker secrets via wrangler secret put, safe
+- app/Models/Reel.php:170: Http::withHeaders(['AccessKey'=> $accessKey]) server-side delete, safe
+- app/Services/Frontend/UploadService.php:719: Http::withHeaders(['AccessKey'=> $accessKey]) server-side Bunny Storage upload (legacy), safe
+
+CRITICAL LEAK FOUND - MUST FIX BEFORE DEPLOYMENT:
+- app/Services/Frontend/UploadService.php:360: return ['direct'=> ['access_key'=> $apiKey ]] => EXPOSES BUNNY_STREAM_API_KEY to browser via /reels/prepare-upload JSON. This was pre-existing but now amplified. Phase 2 Worker path does NOT use this, but legacy path still leaks.
+- app/Services/BunnyStreamService.php: If direct.access_key used in JS, same leak.
+
+Browser/Blade/JS Exposure Check:
+- workers/reels-upload/src/index.js: NEVER exposes AccessKey to browser, only uses env secret server-side, returns Bunny response body only.
+- ReelStorageAuthController.php: json returns { worker_url, token, expiry, storage_path, operation } - NO AccessKey, NO signing secret. SAFE.
+- create.blade.php Worker code: Uses authData.worker_url + token, DOES NOT contain AccessKey. SAFE. Content-Type header only.
+- No localStorage/sessionStorage usage for secrets found.
+
+VERDICT: 1 WARNING - Legacy UploadService.php:360 leak remains. Worker path itself is CLEAN (no secret leak).
+
+================================================================
+2. NORMAL REEL FLOW
+================================================================
+Path:
+Browser -> POST /reels/prepare-upload (creates Reel via UploadService.php:199, bunny_id=null, storage_path=null) -> POST /reels/{slug}/storage-authorize (generates HMAC path reels/{uid}/{rid}/{uuid}.mp4, op=upload) -> PUT Worker (Worker streams req.body -> Bunny Storage) -> POST /reels/{slug}/confirm (HEAD verify, sets storage_path, bunny_status=ready, compression_status=2)
+
+Check:
+- No cPanel temp file? PASS - New path stores video_path = storagePath (string only) in storage_authorize, NOT file move. Legacy UploadService.php:722 file->move NOT called in Worker path.
+- No bytes to Laravel? PASS - Worker PUT bypasses DirectUploadController.php:36. Confirm only sends storage_path string.
+- No CompressReel dispatch? PASS - Worker confirm sets compression_status=2 directly, no dispatch. CompressReel still has guard if(empty(bunny_id)) return but not triggered for Worker reels.
+- No FFmpeg? PASS - No ffmpeg exec in new path.
+
+VERDICT: PASS for Worker path. Legacy fallback still does all 4 (by design for rollback).
+
+================================================================
+3. LEGACY FALLBACK
+================================================================
+If Worker fails (auth 500, PUT fail, confirm fail), create.blade.php: catch block falls back to XHR POST reels/direct-upload (legacy).
+- Legacy upload still works: YES - DirectUploadController + UploadService:698 unchanged.
+- CompressReel available: YES - app/Jobs/CompressReel.php unchanged, still dispatched from UploadService:740 for legacy path.
+- TUS untouched: YES - videos/create.blade.php TUS, BunnyStreamService.php unchanged.
+- DB corruption: NO - Worker path writes storage_path only after HEAD verify; fallback writes video_path then CompressReel. No overwrite of bunny_id incorrectly. Dual-compatible via UploadService.php:405 if(empty bunny_id || !empty storage_path) handling.
+
+VERDICT: PASS - Rollback safe.
+
+================================================================
+4. AUTHORIZATION
+================================================================
+- Reel ownership: ReelStorageAuthController: storageAuthorize/confirm/deleteTemp/duetToken all check (int)reel.user_id !== (int)auth()->id() => 403. PASS
+- Auth middleware: routes/web.php:118 group Route::middleware('auth')->group contains new routes. PASS
+- CSRF: web group uses VerifyCsrfToken; fetch sends X-CSRF-TOKEN header. PASS
+- Rate limiting: throttle:20,1 for authorize/confirm/delete, throttle:30,1 for duet-token. PASS (recommend 10,1 tighter but 20 is acceptable)
+- Path binding: BunnyStorageAuthService: generateStoragePath() server UUID, isValidPath() regex + userId match, confirm checks str_starts_with reels/{authId}/{reelId}/ . PASS
+- HMAC op binding: generateToken binds op, Worker verifies op === token op. PASS - prevents upload token reused as final.
+- Expiry: 300s, Worker checks now > expiry => 401, Laravel generateToken 300s. PASS
+- No arbitrary path: client path ignored, server generates. PASS
+
+VERDICT: PASS
+
+================================================================
+5. CONFIRM ENDPOINT
+================================================================
+- Trusts arbitrary path? NO - validates isValidPath + prefix reels/{uid}/{rid}/. PASS
+- Verifies server path? YES - must equal generated storagePath pattern and HEAD verify.
+- Verifies Bunny file? YES - verifyBunnyStorageFile() HEAD https://{host}/{zone}/{path} with AccessKey, returns 404 if missing. Skips only if zone/key not configured (logs warning) - WARNING: In dev without Storage config, it trusts client! Should require config in prod.
+- Cannot mark other's Reel? NO - ownership check before update. PASS
+- Cannot overwrite other's storage_path? NO - prefix check. PASS
+
+VERDICT: PASS with WARNING on dev fallback trust.
+
+================================================================
+6. CLOUDFLARE WORKER CODE (workers/reels-upload/src/index.js)
+================================================================
+- PUT only: YES - if method !== PUT => 405. PASS
+- HMAC verify: YES - hmacSha256(secret, v1|uid|rid|path|op|expiry) vs token. PASS
+- Expiry: YES - now > expiry => 401. PASS
+- Exact path: YES - isValidPath + path from URL must equal token path (implicit via payload). Worker extracts uid/rid from path and verifies. PASS
+- Operation: YES - verifies op in [upload,final] and HMAC includes op. PASS
+- Content-Length: YES - >105MB => 413. PASS
+- Content-Type: YES - checks allowedTypes but only warns, not 415 strict. WARNING: should return 415 if invalid.
+- Streaming: YES - fetch(bunnyUrl, {body: request.body, duplex:'half'}) - PASS
+- No arrayBuffer: YES - never calls request.arrayBuffer(). PASS
+- No disk: YES - no storage. PASS
+- No FFmpeg: YES - no ffmpeg. PASS
+- AccessKey from secret only: YES - env.BUNNY_STORAGE_ACCESS_KEY. PASS
+- CORS: corsHeaders() restricts to binteoapp.com + localhost, not *. PASS
+- Logging: Minimal, no bytes logged. PASS
+
+VERDICT: PASS with 1 Content-Type warning.
+
+================================================================
+7. ROUTES
+================================================================
+POST reels/{reel}/storage-authorize => ReelStorageAuthController@storageAuthorize, auth group, throttle 20,1, CSRF via web, model by slug/id (firstOrFail). PASS
+POST reels/{reel}/confirm => confirm, same. PASS
+GET reels/{reel}/duet-token => duetToken, throttle 30,1, checks allow_duet+visibility. PASS
+POST reels/{reel}/delete-temp => deleteTemp, same ownership. PASS
+All under Route::middleware('auth')->group, so 401 if not logged in. PASS
+
+VERDICT: PASS
+
+================================================================
+8. DATABASE
+================================================================
+- No migration required: YES - uses existing storage_path (migration 2026_08_28), video_path, bunny_status, compression_status. PASS
+- Overwrites correctly:
+  storage_authorize: sets video_path = storagePath (pending) only if storage_path empty, does NOT overwrite bunny_id. OK but slightly confusing (video_path now holds Bunny path string, not local path). Better to use pending_storage_path column but acceptable for Phase1.
+  confirm: sets storage_path = verified path, bunny_status=ready, compression_status=2, is_compressed=true, status=published (if not draft). Does NOT overwrite parent_id/music fields. PASS
+  No accidental bunny_id overwrite: PASS
+
+VERDICT: PASS - No migration needed, but note video_path reuse.
+
+================================================================
+9. EXISTING CODE
+================================================================
+- CompressReel.php: Still functional, guard if(empty(bunny_id)) return prevents Worker reels triggering FFmpeg, legacy bunny_id reels still processed. PASS
+- BunnyWebhookController.php: Still handles bunny_id + processing_bunny_id webhooks, ignores storage_path reels via UploadService.php:405 check. PASS
+- BunnyStreamService.php: TUS + Stream unchanged. PASS
+- DirectUploadController.php: Unchanged, fallback works. PASS
+- UploadService.php: prepareReelUpload + uploadReelDirect unchanged for legacy. PASS
+- TUS upload: videos/prepare-upload intact. PASS
+
+VERDICT: PASS - Existing flows untouched.
+
+================================================================
+10. SUMMARY
+
+A. PASS: 8/10 checks PASS (Normal flow, Legacy fallback, Authorization, Confirm, Routes, Database, Existing code, Worker core)
+
+B. WARNINGS:
+- Legacy UploadService.php:360 still returns direct.access_key to browser (pre-existing leak, not introduced by Worker but must be removed before deploy if Worker replaces legacy).
+- confirm() HEAD verify skips if Bunny Storage not configured (dev trust) - ensure prod has BUNNY_STORAGE_ZONE + ACCESS_KEY set.
+- Worker Content-Type check warns instead of strict 415.
+- video_path reused as pending marker - works but semantically dirty.
+
+C. SECURITY ISSUES:
+- NO new security issues introduced by Phase1/2 Worker path. AccessKey never exposed in new code.
+- 1 Pre-existing issue: BUNNY_STREAM_API_KEY exposure via UploadService.php:360 direct.access_key.
+
+D. EXISTING FLOW RISKS:
+- If WORKER_UPLOAD_URL empty, workerEnabled=false, app silently uses legacy cPanel path (safe fallback but may confuse testing).
+- If Worker deployed but BUNNY_STORAGE_ZONE secret missing, Worker returns 500.
+
+E. EXACT THINGS TO FIX BEFORE DEPLOYMENT:
+1. [CRITICAL] Remove or stop using UploadService.php:360 'direct'=>['access_key'=>...] in JSON response - or at least ensure frontend no longer reads it for Worker path. For legacy cleanup later, delete this field.
+2. [HIGH] Set prod .env: WORKER_UPLOAD_URL=https://upload.binteoapp.com, WORKER_SIGNING_SECRET, BUNNY_STORAGE_ZONE, BUNNY_STORAGE_HOST if non-default, and run wrangler secret put for same 3 secrets.
+3. [MEDIUM] Make confirm() HEAD verify mandatory in prod (fail if zone/key empty, don't return true).
+4. [LOW] Tighten Worker Content-Type to return 415 instead of allow.
+5. [LOW] Optional: Add pending_storage_path column instead of reusing video_path for clarity (not blocking).
+
+FINAL VERDICT:
+READY FOR WORKER DEPLOYMENT
+(Worker path itself is secure; legacy leak is pre-existing and not blocking Worker test, but fix #1 before full cutover)
+
+================================================================
+Prepared for: ChatGPT Review
+Worker Route: upload.binteoapp.com/upload?path=&token=&expiry=&op=
+Test Flow: POST /reels/{slug}/storage-authorize -> PUT Worker -> POST /reels/{slug}/confirm
+Rollback: Set WORKER_UPLOAD_URL="" to force legacy path
+================================================================

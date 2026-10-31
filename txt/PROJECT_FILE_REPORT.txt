@@ -1,0 +1,197 @@
+﻿================================================================================
+   BINTEO - PROJECT FILE REPORT: CONTROLLERS / MIDDLEWARE / VIEWS
+   Generated: 24 Aug 2026 | Scope: full inventory + upload-system detail
+   Note: entries marked [VERIFIED] were code-inspected this session; others
+         are functional summaries by name/structure/size.
+================================================================================
+
+PART 1 - CONTROLLERS (113 files)
+================================================================================
+
+--- ROOT LEVEL (upload/webhook critical) ---
+TusProxyController.php ......... [VERIFIED] Same-origin TUS proxy
+                                 (POST/PATCH/HEAD/OPTIONS). Forwards chunks to
+                                 Bunny; offset-aware bounded 409 recovery
+                                 (max 2); stage diagnostics logging;
+                                 Expect-header suppression; connectTimeout(10);
+                                 tus_upload_id vs bunny_video_guid separate.
+                                 [MODIFIED THIS SESSION]
+BunnyWebhookController.php ..... Public POST /webhooks/bunny. Auto-publishes
+                                 on encode complete; async notifications.
+CronController.php ............. Scheduled maintenance entry points.
+AnalyticsController.php ........ Telemetry (/api/telemetry/ping,/session).
+AnalyticsEventController.php ... Generic analytics event capture.
+ApiAuthController.php .......... Mobile/API token authentication.
+OnboardingController.php ....... First-run onboarding flow.
+MarketPlaceController.php ...... Creator marketplace (46KB, largest).
+Controller.php ................. Base controller.
+
+--- WEB\ (frontend user facing) ---
+HomeController.php ............. Homepage -> HomeService (cached queries).
+VideoController.php ............ Video create wizard, legacy store, show.
+ReelController.php ............. Reels feed/detail/create/status polling.
+ReelActionController.php ....... Reel likes/comments actions.
+CommentController.php .......... Video comment CRUD (CommentService).
+CommentModerationController.php User-side comment moderation.
+LikeController.php ............. Like toggles.
+ChannelController.php .......... Channel pages/creation.
+SubscriptionController.php ..... Subscribe/unsubscribe.
+PlaylistController.php ......... Playlists + watch-later.
+SearchController.php ........... Global search (SearchService).
+LiveStreamController.php ....... Live chat/go-live.
+MembershipController.php ....... Channel memberships.
+StudioController.php ........... Creator studio dashboard.
+StudioAnalyticsController.php .. Studio analytics.
+ProfileController.php .......... Public profile.
+PreviewController.php .......... Guest preview routes.
+SiteController.php ............. PWA manifest/policies/placeholders.
+TicketController.php ........... Support tickets.
+BunnyUploadController.php ...... [VERIFIED] Upload endpoints:
+                                 prepareUpload/prepareReelUpload (validation +
+                                 UploadService), thumbnails, checkStatus,
+                                 logError. auth + throttle:upload(100/hr).
+DirectUploadController.php ..... [VERIFIED] Server-side FALLBACK upload ->
+                                 UploadService::upload*Direct -> PUT to
+                                 EXISTING bunny_id (no duplicates possible).
+GoogleController.php ........... Google OAuth.
+
+--- USER\ (member area) ---
+UserController.php ............. Profile/settings/KYC/deposits (14KB).
+PlanController.php ............. Premium plan purchase (gates pricing tiers).
+OttPlanController.php .......... OTT buy/verify.
+WithdrawController.php ......... Creator withdrawals.
+AdvertiserController.php ....... Advertiser self-service (11.8KB).
+
+--- GATEWAY ---
+PaymentController.php .......... Gateway presentation.
+Razorpay\ProcessController.php . Razorpay order/verify/IPN. PPV commission
+                                 crediting lives here. DO NOT MODIFY for
+                                 upload work.
+
+--- AUTH\ (Breeze standard) ---
+AuthenticatedSessionController (incl bridgeLogin), RegisteredUserController,
+PasswordController, NewPasswordController, PasswordResetLinkController,
+ConfirmablePasswordController, EmailVerificationNotification/Prompt,
+VerifyEmailController, SocialiteController.
+
+--- ADMIN\ (69 files) ---
+Largest/key: ManageUsersController (38.5KB), Admin\VideoController (17.1KB),
+ManageVideoController (13.7KB), GeneralSettingController (13.1KB - holds
+ppv_creator_commission_percent, per_impression_earn, bunny keys),
+ManageReelController (11.6KB), LanguageController (10.7KB), MarketController,
+WithdrawalController, NotificationController, ExportController,
+SystemController, SupportTicketController, ModerationController (strikes),
+CronConfigurationController. Remaining ~50 are CRUD for categories, banners,
+ads, campaigns, marketplace entities, plans, KYC, reports, storage drivers,
+gateways, page builder, video interactions/resolutions/processing.
+
+================================================================================
+PART 2 - MIDDLEWARE (18 files)
+================================================================================
+WEB GROUP STACK ORDER (bootstrap/app.php appendToGroup 'web'):
+  1. CheckMaintenanceMode ....... 503 during maintenance (admin bypass)
+  2. IpBlockingMiddleware ....... Blocks banned IPs
+  3. VisitorLogMiddleware ....... Visitor tracking per visit
+  4. ForceUpdateMiddleware ...... Forced update gate
+  5. BlockAdminFromFrontend ..... No admin session on user side
+  6. XssSanitization ............ Input cleaning - ***EXCLUDED for
+                                  /tus-proxy/*** (would corrupt binary chunks)
+  7. SecurityHeaders ............ CSP/XSS/frame options headers
+  8. Honeypot ................... Bot trap on forms
+  9. CheckUserStatus ............ Banned/suspended enforcement
+ 10. CaptureTrafficSource ....... UTM/referrer attribution
+ 11. LogSystemPerformance ....... Slow-request logging (queued job)
+ 12. CheckModerationStrikes ..... Blocks uploads at >=3 copyright strikes
+ 13. CheckModerationNotices ..... Forces notice acknowledgment
+ 14. UpdateLastSeen ............. Cache::put last-seen every request
+
+ALIASED / STANDALONE:
+  AdminMiddleware ('admin') ..... Admin guard protection
+  MarketplaceAuth ............... Marketplace seller auth
+  ThrottleVideoViews ............ View-count spam limiter
+  CheckAppVersion ............... API version gate
+
+UPLOAD-SYSTEM RELEVANCE [VERIFIED]: the whole web stack runs on /tus-proxy
+EXCEPT XssSanitization. None of the middlewares read/consume the request
+body; body is read only in TusProxyController via getContent().
+CSRF exclusions (bootstrap/app.php): 'tus-proxy', 'tus-proxy/*',
+'webhooks/*', 'ipn/*', 'api/telemetry/*'.
+
+================================================================================
+PART 3 - VIEWS (~430 blade files, 100+ directories)
+================================================================================
+
+--- LAYOUTS (layouts\) ---
+app.blade.php, guest, admin layouts + partials/navigation. [VERIFIED: app
+layout loads Alpine.js, SweetAlert2, global helpers]
+
+--- FRONTEND UPLOAD-CRITICAL [ALL VERIFIED THIS SESSION] ---
+frontend\videos\create.blade.php ... Video upload wizard (Alpine videoUpload).
+                                     3 steps; TUS 2MB chunks; endpoint from
+                                     backend JSON (/tus-proxy); input value
+                                     reset in onVideoChange; uploading guard
+                                     in startUpload; local versioned tus.min.js;
+                                     automatic fallback to direct-upload on
+                                     bounded TUS failure.
+                                     [MODIFIED: required attr removed from file
+                                     input - was silently blocking submit after
+                                     value-reset fix]
+frontend\reels\create.blade.php .... Reel wizard: gallery OR live camera record,
+                                     music system, duets, <=90s check. Same TUS
+                                     config + guards as videos.
+                                     [MODIFIED: same three fixes applied]
+frontend\videos\show.blade.php ..... Watch page: Plyr+hls.js (deferred),
+                                     comments, ads, paywall, watchtime pings.
+frontend\reels\index.blade.php ..... Reels feed (~2900 lines): HLS players,
+                                     status polling refresh, inline state.
+frontend\index.blade.php .......... Homepage (cached sections, sliders).
+
+--- FRONTEND OTHER ---
+frontend\: home feed partials (15 files), channels\, playlists\, plans\,
+profile\, payment\ (razorpay checkout), live\, marketplace\ (+sections,
+partials), static\ (about/contact), sections\, client\ (authenticated member
+pages: studio dashboard/analytics/videos/earnings, settings, playlists,
+plans, ott_plans, withdraw, deposit, kyc, ticket, advertiser+ads+campaigns).
+
+--- ADMIN (300+ files) ---
+admin\: dashboard, users (14), videos (6), reels (4), analytics (12),
+reports (9), setting (15), notification (9+templates), moderation+reports,
+withdraw (7), kyc (5), marketplace (7+contact/gallery/portfolio/service),
+onboarding-slides (5), storage drivers, gateways (automatic/manual),
+page builder, cron, banners, campaigns, comments/reports, playlists,
+ott_plans, plans/userplan, system, security, exports, language.
+
+--- COMPONENTS / PARTIALS ---
+components\ (39 reusable x-components), components\ root partials (6),
+emails\ (11), errors\ (404/500), auth\ (6), public files at views root (2).
+
+================================================================================
+PART 4 - FILES MODIFIED THIS SESSION (upload stability work)
+================================================================================
+1. app\Http\Controllers\TusProxyController.php
+   - Bounded offset-aware 409 recovery (MAX_OFFSET_RECOVERY_ATTEMPTS=2),
+     Cases A-D incl. fail-safe 400 on invalid/behind offsets
+   - Upload-Length validation on HEAD recovery
+   - Stage diagnostics: patch.start / patch.body_received /
+     bunny.patch.start / bunny.patch.response / patch.response.sent
+     (+ elapsed_ms, Upload-Expires, retry counts)
+   - Identifier fix: tus_upload_id vs bunny_video_guid
+   - Expect:'' header suppression (100-continue stall prevention)
+   - connectTimeout(10) everywhere; timeouts explicit (120s PATCH, 30s POST,
+     15s HEAD) - no infinite values
+2. bootstrap\app.php - CSRF exclusions 'tus-proxy' + 'tus-proxy/*'
+3. resources\views\frontend\videos\create.blade.php
+   - e.target.value='' reset; uploading re-entry guard; local versioned
+     tus.min.js; removed 'required' from hidden file input (was blocking
+     submit after reset)
+4. resources\views\frontend\reels\create.blade.php - same fixes minus 'required'
+5. .user.ini - max_input_time 60->300, max_execution_time 30->120
+6. public\assets\js\tus.min.js - NEW local copy of tus-js-client v3.0.0
+
+NOT MODIFIED (per instructions): UploadService, BunnyStreamService,
+BunnyUploadController, DirectUploadController, queue config (.env),
+ProcessVideo/CompressReel jobs, monetization/watchtime/auth logic.
+
+================================================================================
+END OF REPORT
+================================================================================

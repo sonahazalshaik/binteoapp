@@ -1,0 +1,25 @@
+# Recent Platform Updates & Fixes
+
+Here is a summary of the recent updates and fixes applied to the platform:
+
+## 1. UI Fixes & Enhancements
+* **Liked Videos Page**: Fixed UI layout and alignment issues for a more seamless user experience.
+* **Playlists Page**: Addressed visual inconsistencies and improved the overall display of playlists.
+* **Watch Later Page**: Corrected UI rendering issues, ensuring videos are displayed cleanly.
+* **Admin Sidebar**: Fixed a bug where the scrollbar was not visible while in dark mode.
+
+## 2. Logic & Display Fixes
+* **Video Duration Display**: Fixed the video duration logic. It now accurately displays the actual length of the video (e.g., `00:30` for a 30-second video, `30:00` for a 30-minute video). It no longer defaults to incorrect durations like `00:00:00`.
+* **Deleted/Unavailable Videos**: When a video is unavailable, the platform no longer exposes internal server names. It securely and cleanly displays "Video unavailable or deleted."
+
+## 3. Bunny CDN Sync & Ghost Video Cleanup
+* **Automated Cleanup System**: Successfully implemented a background automation (`bunny:sync-deleted` command) that safely pulls all published videos and reels, pinging Bunny CDN to verify their existence.
+* **Ghost Video Removal**: If a video or reel was manually deleted in Bunny CDN, the system will detect a "404 Not Found" and instantly switch the media's status to `draft` in the database.
+* **Immediate Front-End Removal**: Once marked as a draft, the missing media instantly vanishes from the homepage, channel pages, search results, trending feeds, and sidebars, keeping the public-facing site clean.
+
+## 4. Admin UI Notices
+* **Important Deletion Warning**: Added clear, visually distinct warning notes to the top of both the **Videos** and **Reels** pages within the Admin Panel. 
+* **Warning Details**: The note reads: "Important Note: Videos/Reels are automatically deleted from BunnyCDN only when deleted by the user or via this Admin Panel. Please do not delete videos manually in BunnyCDN as it will not remove the entries from our site." This ensures admins are well-informed of the correct deletion process.
+
+## 5. Policy Updates
+* **Privacy Policy**: Updated the platform's Privacy and Policy documentation to reflect the latest standards and requirements.

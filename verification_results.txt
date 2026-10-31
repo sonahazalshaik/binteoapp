@@ -1,0 +1,27 @@
+========================================================
+VERIFYING LOGIC FOR 1 SUBSCRIBERS
+========================================================
+Creating mock subscribers and FCM tokens...
+Successfully created database sandbox entries.
+T2 - T1 (Time to dispatch NotifySubscribers parent job): 5029.51 ms
+Executing NotifySubscribers synchronously to measure pipeline performance...
+NotifySubscribers execution time: 678.96 ms
+Jobs created in active queue: 3
+Database sandbox rollback completed successfully.
+========================================================
+VERIFYING LOGIC FOR 100 SUBSCRIBERS
+========================================================
+Creating mock subscribers and FCM tokens...
+Successfully created database sandbox entries.
+T2 - T1 (Time to dispatch NotifySubscribers parent job): 3.97 ms
+Executing NotifySubscribers synchronously to measure pipeline performance...
+NotifySubscribers execution time: 358.53 ms
+Jobs created in active queue: 102
+Database sandbox rollback completed successfully.
+========================================================
+VERIFYING LOGIC FOR 1000 SUBSCRIBERS
+========================================================
+Creating mock subscribers and FCM tokens...
+Successfully created database sandbox entries.
+T2 - T1 (Time to dispatch NotifySubscribers parent job): 3.67 ms
+Executing NotifySubscribers synchronously to measure pipeline performance...

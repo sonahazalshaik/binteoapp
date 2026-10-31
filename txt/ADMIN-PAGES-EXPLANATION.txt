@@ -1,0 +1,1210 @@
+================================================================================
+ADMIN PANEL - PAGE-BY-PAGE PROCESS EXPLANATION
+Project     : new-youtube (Laravel 13 YouTube-style platform)
+Tech        : Blade + Tailwind + Alpine.js + Chart.js/ApexCharts + DataTables
+Reading key : Each page = ~8-10 lines. WHAT it is -> WHAT it contains -> HOW the
+              workflow runs -> WHO triggers it (controller / route).
+The panel is divided PHASE BY PHASE (logical layers of the whole system).
+================================================================================
+
+
+================================================================================
+PHASE 1 - AUTHENTICATION & ACCOUNT LAYER (admin auth + profile + notifications)
+================================================================================
+
+[admin/auth/login.blade.php]
+- The admin login screen: centered card with username/e-mail + password,
+  remember-me, and a submit button that posts to Admin AuthController@login.
+- Flow: credentials validated (throttled against brute force), admin guard
+  session created, then redirect to admin dashboard.
+- Shows validation/reCAPTCHA errors via session flash messages; branded logo
+  and dark/light theme styling shared with the app shell.
+- Trigger: GET /admin/login renders it, POST /admin/login authenticates.
+  (Route name basic: admin.login)
+
+[admin/auth/register.blade.php]
+- Optional self-registration form for new admin accounts (disabled in prod).
+- Fields: name, username, email, password + confirmation; posts to Admin
+  AuthController@register with full server-side validation rules.
+- On success the account is created with proper role assignment and the admin
+  is logged in and sent to the dashboard.
+- Trigger: GET /admin/register (render), POST /admin/register (save).
+
+[admin/auth/forgot-password.blade.php]
+- "Forgot password" screen: single email field -> admin requests a reset link.
+- Uses the same guard mechanics; a token email is dispatched and stored so the
+  reset link can be validated later.
+- Success/error feedback shown inline without leaving the page (Alpine state).
+- Trigger: GET /admin/forgot-password, POST -> Admin AuthController.
+
+[admin/auth/reset-password.blade.php]
+- Password reset form reached from the emailed link; carries a signed token.
+- Fields: new password + confirm; posts to Admin AuthController reset method
+  which verifies the token then updates the hashed password.
+- Flow ends with the admin being redirected to the login screen.
+- Trigger: GET /admin/reset-password?token=..., POST -> reset.
+
+[admin/profile.blade.php]
+- The logged-in admin's account page under the "Profile" menu.
+- Shows avatar upload/preview plus editable personal fields: name, username,
+  email, phone, bio; posts back to AdminController (profile/update).
+- Layout uses form-guard sections, image preview with Alpine, and success
+  toasts; role permission badges may be rendered.
+- Trigger: admin.profile route, POST -> profile update method.
+
+[admin/password.blade.php]
+- Dedicated "Change password" form: current password, new password, confirm.
+- Always validates the CURRENT password against the stored hash before
+  allowing an update; then re-hashes and stores.
+- Success message and (optionally) logs the password-change event.
+- Trigger: admin.password route, POST -> password update method.
+
+[admin/notifications.blade.php]
+- Central admin notification centre listing system events (new reports,
+  withdrawals, KYC submissions, failed jobs, etc.).
+- Renders notification list with read/unread state, icons, timestamps;
+  supports mark-as-read, mark-all-read and item click-through to targets.
+- Uses the NotificationController / AdminController notifications index which
+  pulls the latest notifications for the admin.
+- Trigger: routes on the shell topnav bell icon opening a slide-over / list.
+
+[admin/components/notifications-dropdown.blade.php]
+- The bell dropdown in the top navigation, live-loaded with unread items.
+- Badge with unread count, "mark all read", and a link to the full
+  notifications page; auto-refresh optional.
+- Trigger: part of layouts/app topbar; data fetched via a small endpoint.
+
+================================================================================
+PHASE 2 - APPLICATION SHELL (master layout + shared partials/components)
+================================================================================
+
+[admin/layouts/app.blade.php]
+- The main application layout wrapping every modern admin page.
+- Sets up the HTML head (SEO, fonts, global CSS/JS assets) and the structure:
+  sidebar navigation, top navbar, alert/toast mounting point, content slot.
+- Declares shared Alpine stores/plugins (theme, sidebar collapse, live alerts)
+  and includes the cron modal + global JS at the bottom.
+- Every page extends this layout (e.g. @extends('admin.layouts.app')).
+
+[admin/layouts/master.blade.php]
+- A lighter/master Blade layout used by system-level pages (authentication,
+  maintenance or standalone pages) that should not show the full sidebar.
+- Provides just the page head, a centered viewport, and the content yield.
+- Trigger: extended by login/register/forgot/reset and other bare pages.
+
+[admin/partials/breadcrumb.blade.php]
+- Shared breadcrumb block at the top of list pages (Dashboard / Module / Page).
+- Auto-built from the current route name/segment or passed breadcrumbs array;
+  renders the page H1 heading and a subtitle under it.
+- Trigger: @include('admin.partials.breadcrumb') on many headers.
+
+[admin/partials/cron_modal.blade.php]
+- A modal that lists recommended cron jobs for the platform (queue worker,
+  scheduler, cron index route) with copy-ready command lines.
+- Common in shared-host setup: explains how to point crontab to php artisan
+  schedule; opens from the cron/status or dashboard link.
+- Trigger: included inside app layout; opened via Alpine state.
+
+[admin/partials/navbar.blade.php]
+- The bottom or secondary navigation strip of some pages; holds quick links
+  back to list pages when editing/detailing a record.
+- Trigger: @include from create/edit/view pages to navigate back easily.
+
+[admin/partials/sidenav.blade.php]
+- The left-hand sidebar: menu groups, icons, permission-filtered links,
+  active-state highlighting, badge counts, collapsible submenus.
+- User chip at the bottom with profile/logout; respects admin RBAC.
+- Trigger: included in admin/layouts/app.blade.php.
+
+[admin/partials/topnav.blade.php]
+- Top header bar: hamburger (sidebar toggle), search box, theme/language
+  toggles, and the notification bell with unread badge.
+- Trigger: included in admin/layouts/app.blade.php.
+
+[admin/components/header-toolbar.blade.php]
+- Reusable toolbar for list pages: page title + subtitle on the left, action
+  buttons (Create/Add/Refresh) on the right.
+- Accepts slot-able buttons passed from each page; standardises headers.
+- Trigger: rendered on most index pages (users, videos, banners, campaigns).
+
+[admin/components/table-toolbar.blade.php]
+- Table toolbar with search input, filter dropdowns, and action buttons above
+  DataTables grids; wires search/filter events into the table.
+- Often includes "bulk actions" selection (approve/block/delete all selected),
+  which posts an array of checked IDs to the controller.
+- Trigger: used with the datatable-container component (DataTables SSR).
+
+================================================================================
+PHASE 3 - DASHBOARD & GLOBAL REPORTING
+================================================================================
+
+[admin/dashboard.blade.php]
+- The admin home: row of stat cards (users, videos, reels, earnings, deposits,
+  withdrawals, pending items) each with trend arrows.
+- Two chart canvases fed by AJAX endpoints (income vs expense, users/video
+  growth) rendered with Chart.js; a live users table and quick actions.
+- Includes the cron modal shortcut if scheduled commands are not running.
+- Data: DashboardController@index aggregates counts/trends; refreshes via
+  /admin/dashboard-chart JSON endpoints.
+
+[admin/reports.blade.php]
+- Top-level "Reports" landing aggregating several subreports into one page:
+  users, videos, transactions, logins, watch history, active sessions.
+- Usually a tabbed interface (Bootstrap-style tabs/Alpine) where each tab
+  loads its own paginated table via the shared report controller.
+- Quick export button per tab to CSV; dates filter at the top.
+- Trigger: routes under admin.reports.* (Reports/AccountReportController).
+
+[admin/videos/analytics.blade.php]
+- Per-video analytics screen combining views, likes, comments, watch-time,
+  and share counts for a chosen video.
+- Line/bar charts for daily views and an engagement breakdown; player embed
+  preview on the side.
+- Trigger: admin.videos.analytics inside VideoController/@admin video module.
+
+================================================================================
+PHASE 4 - ANALYTICS MODULE (deep data on users, content, revenue, telemetry)
+================================================================================
+
+[admin/analytics/index.blade.php]
+- The Analytics landing page giving a broad snapshot across all analytics
+  categories with quick stat tiles and entry links into each section.
+- Includes date-range picker that refreshes the aggregate numbers.
+- Trigger: admin.analytics.index (AnalyticsController@index).
+
+[admin/analytics/dashboard.blade.php]
+- Analytics dashboard profile: high-level KPI strip (total users, videos,
+  watch time, revenue) plus trend charts.
+- Sectioned panels link users/content/creators/monetization/videos analytics.
+- Trigger: admin.analytics.dashboard.
+
+[admin/analytics/audience.blade.php]
+- Audience analytics: user demographics (country, device, browser, gender,
+  age), signup growth, return/login activity charts.
+- Renders tables + charts for regional distribution with flags.
+- Trigger: admin.analytics.audience.
+
+[admin/analytics/content.blade.php]
+- Content analytics: total videos/reels, newly published, upload trend over
+  time, category distribution, top performing videos, average duration.
+- Benchmark cards visualised as bars/pies fed from analytics queries.
+- Trigger: admin.analytics.content.
+
+[admin/analytics/creators.blade.php]
+- Creator/monetization analytics: best earning creators, payout totals,
+  commission generated, growth of creator accounts and their libraries.
+- Ranked tables plus per-month series charts.
+- Trigger: admin.analytics.creators.
+
+[admin/analytics/monetization.blade.php]
+- Monetization analytics: revenue from subscriptions, ads, marketplace,
+  deposits vs payouts, platform commission earned, trends.
+- Charts for income streams and an expenses/withdrawals comparison.
+- Trigger: admin.analytics.monetization.
+
+[admin/analytics/retention.blade.php]
+- Retention/holding analytics: watch-time totals, average session length,
+  retention by day-week, returning-visitor rates, churn indicators.
+- Used to judge content stickiness of the platform.
+- Trigger: admin.analytics.retention.
+
+[admin/analytics/revenue.blade.php]
+- Revenue analytics: income/expense ledger summarised by month, net profit
+  dashboard, top paying customers, charge/fee collections.
+- Trigger: admin.analytics.revenue.
+
+[admin/analytics/technical.blade.php]
+- Technical analytics: performance numbers such as storage used, uploads per
+  day, server/IP activity, failed processing jobs, CDN/transcoding stats.
+- Trigger: admin.analytics.technical.
+
+[admin/analytics/telemetry.blade.php]
+- Telemetry panel: device/watch telemetry, malformed-request events, and
+  platform usage signals useful for ops debugging.
+- Trigger: admin.analytics.telemetry.
+
+[admin/analytics/videos.blade.php]
+- Video-focused analytics: per-category totals, most engaging videos, total
+  views/time, average ratings, watched-to-completion rates.
+- Can drill into a specific video's analytics.
+- Trigger: admin.analytics.videos.
+
+[admin/analytics/partials/online_users.blade.php]
+- Live "online now" partial: table/list of currently active users with their
+  last-seen activity, rendered inside an analytics or dashboard panel.
+- Trigger: loaded via an AJAX interval endpoint (user activity tracker).
+
+================================================================================
+PHASE 5 - GROWTH MODULE
+================================================================================
+
+[admin/growth/index.blade.php]
+- Growth tool landing showing referral/lead/affiliate-style growth campaign
+  metrics (invites, signups from links, bonus payouts).
+- Doughnut/bar charts of funnel (invite -> registered -> verified -> paid)
+  and a table of top referrers with their earnings.
+- Settings inline for referral bonus amounts/limits.
+- Trigger: admin.growth.index (Growth controller), POST endpoints save rules.
+
+================================================================================
+PHASE 6 - CONTENT MANAGEMENT: VIDEOS
+================================================================================
+
+[admin/videos/index.blade.php]
+- Master video list: DataTables grid with cover thumbnail, title, channel,
+  owner, views/likes, status, uploaded date.
+- Toolbar filters: search, status, premium/video type; bulk select with
+  actions (approve, reject, promote, delete).
+- Approve/reject changes geolocation availability too (gs() premium rules).
+- Trigger: admin.videos.list (VideoController@index).
+
+[admin/videos/create.blade.php]
+- Add video form: title, description, channel/user assignment, category,
+  thumbnail upload, video file / HLS stream URL, visibility, comments toggle.
+- Server-side validation on submit; on save the file is queued for
+  processing via the ProcessVideo job.
+- Trigger: admin.videos.create (VideoController@create/store).
+
+[admin/videos/edit.blade.php]
+- Edit existing video: reuse of create form sections pre-filled; can swap the
+  source file, thumbnail, category, premium/monetisation status.
+- Resaving flags the video for re-processing if the file changed.
+- Trigger: admin.videos.edit (VideoController@update).
+
+[admin/videos/view.blade.php]
+- Video detail/view: embedded player + metadata panel, owner/channel info,
+  status badges, and action buttons (approve/reject/block/edit/delete).
+- Sub-tabs listing this video's comments, likes, watch-later and playlist
+  memberships (links to interactions pages).
+- Trigger: admin.videos.view (VideoController@view).
+
+[admin/videos/not_interested.blade.php]
+- A "not interested" feedback log: users who marked the video as not
+  interested with reasons, used to tune recommendations.
+- Table of video + user + timestamp; filterable, clearable.
+- Trigger: admin.videos.notInterested.
+
+[admin/videos/interactions/comments.blade.php]
+- All comments left on a chosen video with user, text, report/like counts;
+  inline toggle to hide/delete specific comments.
+- Trigger: admin.videos.interactions.comments (nested under video detail).
+
+[admin/videos/interactions/likes.blade.php]
+- Likes received by the video: user list with timestamps, total count header.
+- Trigger: admin.videos.interactions.likes.
+
+[admin/videos/interactions/playlists.blade.php]
+- Which playlists contain this video: playlist title, owner, added date.
+- Trigger: admin.videos.interactions.playlists.
+
+[admin/videos/interactions/watch_later.blade.php]
+- Users who saved the video to "watch later" with date saved.
+- Trigger: admin.videos.interactions.watchLater.
+
+================================================================================
+PHASE 7 - CONTENT MANAGEMENT: REELS & CATEGORIES
+================================================================================
+
+[admin/reels/index.blade.php]
+- Reels section list: thumbnail, author/creator, audio used, views/likes,
+  status, created date, moderate buttons.
+- Bulk actions: approve/reject/promote/delete; search + status filter.
+- Trigger: admin.reels.index (ReelsController).
+
+[admin/reels/create.blade.php]
+- Create reel form: upload short video + optional cover, choose audio,
+  description, visibility; saved via the CompressReel queued job.
+- Trigger: admin.reels.create/store.
+
+[admin/reels/edit.blade.php]
+- Edit existing reel (description, cover, status); file swap triggers
+  re-compression.
+- Trigger: admin.reels.edit/update.
+
+[admin/reels/saved_audios.blade.php]
+- Saved audio library used in reels: list of audio tracks with duration,
+  usage count, status (active/banned), delete.
+- Trigger: admin.reels.savedAudio.
+
+[admin/category/create.blade.php]
+- Category creation form: name, slug, description, icon/thumbnail upload,
+  parent category, status; slug auto-generated and unique.
+- Trigger: admin.category.create/store (VideoCategoryController).
+
+[admin/category/edit.blade.php]
+- Edit form for a category: same fields pre-filled; changing slug recalculates
+  URL references; deleting reassigns videos.
+- Trigger: admin.category.edit/update & delete routes.
+
+[admin/category/index.blade.php]
+- Category management list: tree/table of all video categories with video
+  counts, order, status, edit/delete actions.
+- Fast "add category" button calling the create form.
+- Trigger: admin.category.index/list.
+
+================================================================================
+PHASE 8 - CHANNELS, PLAYLISTS & VIDEO PROCESSING
+================================================================================
+
+[admin/channels/index.blade.php]
+- Virtual channels list: thumbnail/name/owner/creator, subscribers, verified
+  badge, status; toolbar bulk actions and selection.
+- Approval flow for new channels gated by admin (approve/unapprove), plus
+  quick toggle buttons for "featured" and "trending" flags.
+- Trigger: admin.virtualChannel.index (VirtualChannelController).
+
+[admin/channels/create.blade.php]
+- Create channel belonging to a chosen user/creator: name, slug, description,
+  avatar/cover upload, category, verification status.
+- Trigger: admin.virtualChannel.create/store.
+
+[admin/channels/edit.blade.php]
+- Edit channel profile: name/description/avatar/cover/category, verification
+  toggle, featured/trending flags; saving keeps user association.
+- Trigger: admin.virtualChannel.edit/update.
+
+[admin/channels/view.blade.php]
+- Channel preview page: banner, avatar, verified/featured badges, subscriber
+  count, owner chip, videos tab (recent uploads), moderation buttons.
+- Trigger: admin.virtualChannel.view/detail.
+
+[admin/playlist/create.blade.php]
+- Create playlist form: name, description, visibility (public/private), the
+  owning user, cover, ordered list of videos.
+- Trigger: admin.playlist.create/store (PlaylistController).
+
+[admin/playlist/edit.blade.php]
+- Edit playlist: update metadata and reorder/edit included videos; duplicate
+  title guard.
+- Trigger: admin.playlist.edit/update.
+
+[admin/playlist/index.blade.php]
+- Playlists management list: name, owner, video count, visibility, status,
+  edit/delete; searchable grid.
+- Trigger: admin.playlist.index/list.
+
+[admin/playlist/show.blade.php]
+- Detail view of a playlist: all videos in order, owner, stats, quick actions
+  to remove videos or change visibility.
+- Trigger: admin.playlist.show.
+
+[admin/processing/create.blade.php]
+- "Processing" job launcher: enqueue one video by ID (or batch) into the
+  processing pipeline (transcoding/HLS via Bunny), set resolution profile.
+- Trigger: admin.processing.create/store (ProcessingController).
+
+[admin/processing/edit.blade.php]
+- Edit a processing job entry: change status/priority/attempts or retry a
+  failed job manually.
+- Trigger: admin.processing.edit/update.
+
+[admin/processing/index.blade.php]
+- Processing queue dashboard: list of videos in queue with status
+  (pending/processing/completed/failed), progress %, timestamps.
+- Actions: retry, cancel, view error log; auto-refresh optional.
+- Trigger: admin.processing.index.
+
+[admin/processing/show.blade.php]
+- Single processing job detail: full logs, timestamps, resolutions produced,
+  and buttons to re-run or abort.
+- Trigger: admin.processing.show.
+
+================================================================================
+PHASE 9 - COMMENTS & REPORT MODERATION
+================================================================================
+
+[admin/comments/create.blade.php]
+- Manually post a comment as the platform/admin on a chosen video/reel.
+- Trigger: admin.comments.create/store (CommentModerationController).
+
+[admin/comments/edit.blade.php]
+- Edit a comment's body text (moderator override), toggling moderation status.
+- Trigger: admin.comments.edit/update.
+
+[admin/comments/index.blade.php]
+- Comment moderation list: video, username, comment body, likes, timestamps,
+  status badges (Published/Hidden/Reel comment/Blocked user).
+- Reel comments are labelled with the REEL badge, video comments with VIDEO
+  badge; actions to publish/hide/delete and to block the author in one click.
+- Trigger: admin.comments.index (CommentModerationController).
+
+[admin/comments/view.blade.php]
+- Single comment detail: full text, author, media, context, moderation
+  history and quick approve/hide/block controls.
+- Trigger: admin.comments.view.
+
+[admin/comment_reports/index.blade.php]
+- Reported-comments dashboard: tabs grouping reports on blocked users,
+  comments on reels, comments on videos, plus a general reported stream.
+- Each report shows reporter, target user/comment preview, reason, status;
+  actions resolve, dismiss, or block the offender.
+- Trigger: admin.commentReports.index/list (CommentReportController).
+
+================================================================================
+PHASE 10 - VIDEO TECHNICAL CONFIG (resolution profiles & commissions)
+================================================================================
+
+[admin/video_resolution/index.blade.php]
+- Resolution profile manager: defines available qualities (e.g. 360p/720p/
+  1080p/4K) used during transcoding, with bitrates and ordering.
+- Toggling affects which HLS renditions the processing pipeline generates.
+- Trigger: admin.videoResolution.index (VideoResolutionController).
+
+[admin/video_commissions/index.blade.php]
+- Commission rate table: per-channel-video commission split between platform
+  and creator; editable percentages/saved amounts.
+- Used at payout time to compute creator earnings from monetized videos.
+- Trigger: admin.videoCommission.index (VideoCommissionController).
+
+================================================================================
+PHASE 11 - MONETIZATION & SUBSCRIPTION PLANS
+================================================================================
+
+[admin/monetization/index.blade.php]
+- Revenue Control Center: master toggle enabling video monetisation on the
+  platform plus the default platform-commission percentage tier.
+- Editable per-video override policies; shows monthly monetizable-revenue
+  summary and reconciliation with payouts.
+- Trigger: admin.monetization.index (MonetizationController@index/toggle,
+  settings persisted to DB).
+
+[admin/plan/index.blade.php]
+- Landing for plan management bridging the plan types (OTT, video plans).
+- Usually brief stats + links into plans/ott_plans modules.
+- Trigger: admin.plan.index.
+
+[admin/plans/create.blade.php]
+- Create a subscription plan: name, price, currency, billing interval,
+  featured flag, status; submit via SubscriptionPlanController@store.
+- Trigger: admin.plans.create/store.
+
+[admin/plans/edit.blade.php]
+- Edit plan (price/interval/featured/status) with change warnings about
+  existing active subscribers.
+- Trigger: admin.plans.edit/update.
+
+[admin/plans/index.blade.php]
+- Subscription plans list: plan, price, interval, subscriber count, featured/
+  status toggles, edit/delete; quick create button.
+- Trigger: admin.plans.index/list.
+
+[admin/userplan/create.blade.php]
+- Assign a subscription plan to a specific user (manual grant): pick user +
+  plan + expiry, done via UserPlan management.
+- Trigger: admin.userplan.create/store (UserPlanController).
+
+[admin/userplan/edit.blade.php]
+- Edit a user's granted plan: renew, change plan, set expiry date.
+- Trigger: admin.userplan.edit/update.
+
+[admin/userplan/index.blade.php]
+- Grants list: user, plan, start/expiry, status, payment ref; supports
+  extension/renewal and viewing subscriptions.
+- Trigger: admin.userplan.index/list.
+
+[admin/ott_plans/create.blade.php]
+- OTT (TV/streaming bundle) plan creation: title, price, features/badge,
+  validity, status; stored via OttPlanController.
+- Trigger: admin.ottplans.create/store.
+
+[admin/ott_plans/edit.blade.php]
+- Edit an OTT plan (price, features, validity, status).
+- Trigger: admin.ottplans.edit/update.
+
+[admin/ott_plans/index.blade.php]
+- OTT plans list with active-subscriber counts, price/validity, toggle +
+  edit/delete actions.
+- Trigger: admin.ottplans.index.
+
+[admin/ott_plans/subscriptions.blade.php]
+- Table of purchased OTT subscriptions: user, plan, start/expiry, status,
+  refund/cancel actions.
+- Trigger: admin.ottplans.subscriptions.
+
+================================================================================
+PHASE 12 - PAYMENTS: DEPOSITS, GATEWAYS & WITHDRAWALS
+================================================================================
+
+[admin/deposit/log.blade.php]
+- "Financial Influx" deposit ledger: table of all money-in transactions with
+  TRX id, user, gateway, amount, charge, status badge, date.
+- Filter bar for gateway/method/status; actions open each deposit's detail.
+- Trigger: admin.deposit.list (DepositController@deposit).
+
+[admin/deposit/detail.blade.php]
+- Single deposit detail: full Transaction Ledger row (amount, charge, payable,
+  TRX, gateway, status) plus the gateway-specific data partial.
+- Approve / Reject buttons that settle the pending deposit (credit user,
+  mark paid or mark rejected per gateway rules).
+- Trigger: admin.deposit.detail (DepositController@detail).
+
+[admin/deposit/widget.blade.php]
+- Summary strip: stat cards for total successful, pending, initiated and
+  rejected deposits.
+- Trigger: included/used on deposit pages and finance dashboard.
+
+[admin/deposit/gateway_data.blade.php]
+- Recursive partial rendering the JSON metadata each gateway returned (e.g.
+  txn id, payee, checksum) as formatted key/value rows for admins.
+- Trigger: included inside DepositController detail views.
+
+[admin/withdraw/create.blade.php]
+- Create a payout request manually for a user: amount, method, reference; if
+  OTP/verification is configured the admin confirms the security code.
+- Trigger: admin.withdraw.create/store (WithdrawalController).
+
+[admin/withdraw/create_manual.blade.php]
+- Batch/manual withdrawal launcher: select user + amount and push directly
+  into the payout queue with manual reference numbers.
+- Trigger: admin.withdraw.manual.store.
+
+[admin/withdraw/detail.blade.php]
+- Single withdrawal detail: user, method (account number/UPI/wallet), amount,
+  charge, payable balance, status history.
+- Approve / Reject / Cancel actions; on approve the balance is debited and
+  admin marks payment sent.
+- Trigger: admin.withdraw.detail.
+
+[admin/withdraw/edit.blade.php]
+- Edit a pending payout entry (amount, method, note) before it's approved.
+- Trigger: admin.withdraw.edit/update.
+
+[admin/withdraw/index.blade.php]
+- Withdrawal requests list with balances and filters (status/method/date),
+  bulk approve/reject, export.
+- Trigger: admin.withdraw.index.
+
+[admin/withdraw/widget.blade.php]
+- Stat cards: total requested, processed, pending, rejected withdrawals.
+- Trigger: used on withdrawal pages.
+
+[admin/withdraw/withdrawals.blade.php]
+- Secondary "all withdrawals / history" grid with full payout logs and user
+  payee info, distinct from pending queue.
+- Trigger: admin.withdraw.withdrawals history view.
+
+[admin/gateways/automatic/edit.blade.php]
+- Edit configuration of an automatic payment gateway (PayPal, Stripe, etc.):
+  credential fields, conversion/charge setup, status toggle.
+- Trigger: admin.gateways.automatic.edit (PaymentGatewayController).
+
+[admin/gateways/automatic/list.blade.php]
+- Grid of automatic gateways with name, logo, charge %, status toggle.
+- Trigger: admin.gateways.automatic.
+
+[admin/gateways/manual/create.blade.php]
+- Add a manual deposit gateway: name, fields asked from user, instructions to
+  send, charges, min/max; saved via GatewayController@store.
+- Trigger: admin.gateways.manual.create.
+
+[admin/gateways/manual/edit.blade.php]
+- Edit manual gateway instructions / charge / required fields.
+- Trigger: admin.gateways.manual.edit.
+
+[admin/gateways/manual/list.blade.php]
+- List of all manual gateways with active badge and edit/delete actions.
+- Trigger: admin.gateways.manual.
+
+[admin/gateways/miscellaneous.blade.php]
+- Widely, the list of other/misc payment methods (cod, crypto, etc.) with
+  currency rules and statuses; part of gateway management.
+- Trigger: admin.gateways index/payment methods area.
+
+================================================================================
+PHASE 13 - ADVERTISING: BANNERS & CAMPAIGNS
+================================================================================
+
+[admin/banners/create.blade.php]
+- Banner creation form: title, image upload, target link (internal route or
+  external URL), placement, start/end date, status.
+- Trigger: admin.banner.create/store (BannerController).
+
+[admin/banners/edit.blade.php]
+- Edit existing banner (image, link, schedule, status). Save applies to
+  placement slots immediately.
+- Trigger: admin.banner.edit/update.
+
+[admin/banners/index.blade.php]
+- Campaigns/Banners list: banner preview thumbnail, title, placement, active
+  period, clicks/impressions, status toggle; bulk select + approve/delete.
+- The header-toolbar provides the "Add banner" CTA.
+- Trigger: admin.banner.index/list.
+
+[admin/campaign/create.blade.php]
+- Campaign creation: title, allocated total amount, target audience/placement,
+  budget rules, status; saved as an advertising campaign record.
+- Trigger: admin.campaign.create/store.
+
+[admin/campaign/detail.blade.php]
+- Single campaign detail: budget vs spent, impressions/clicks, assigned
+  creator/user, status timeline, finance line (total_amount).
+- Trigger: admin.campaign.detail.
+
+[admin/campaign/edit.blade.php]
+- Edit campaign fields (title, amount, audience, status); changing amount
+  recomputes remaining budget.
+- Trigger: admin.campaign.edit/update.
+
+[admin/campaign/index.blade.php]
+- Advertising Campaigns grid: mobile responsive card view and table with
+  campaign name, user/creator, total amount, used balance, status; actions
+  view/detail/delete/approve.
+- Trigger: admin.campaign.index/list (CampaignController).
+
+[admin/campaigns/detail.blade.php]
+- Alias-style campaign viewer grouping the campaign's deposits, renderings and
+  transcript; mirrors campaign.detail but at report level.
+- Trigger: admin.campaigns.detail.
+
+[admin/campaigns/index.blade.php]
+- Extended campaigns report list aggregating ad campaigns with spend, pending
+  amounts, and status filters.
+- Trigger: admin.campaigns.index.
+
+================================================================================
+PHASE 14 - USERS & KYC VERIFICATION
+================================================================================
+
+[admin/users/index.blade.php]
+- Main users grid: avatar, name, username, email, status (active/blocked),
+  VIP/badge, registration date; DataTables with search + filters.
+- Bulk tools and quick actions (detail, kyc, notifications, block, delete).
+- Trigger: admin.users.index (ManageUsersController@index).
+
+[admin/users/list.blade.php]
+- Optional alternate/unfiltered user listing view (plain paginated table).
+- Trigger: admin.users list route.
+
+[admin/users/create.blade.php]
+- Create user manually: name, username, email, phone, password, newsletter
+  toggle; creates account with default role.
+- Trigger: admin.users.create/store.
+
+[admin/users/edit.blade.php]
+- Edit user info: credentials, status, permission/VIP fields, balance reset.
+- Trigger: admin.users.edit/update.
+
+[admin/users/detail.blade.php]
+- Full user profile viewer: bio, avatar, stats (revenue, balance, videos,
+  subscribers), recent activity, kyc status link, moderation buttons.
+- Trigger: admin.users.detail.
+
+[admin/users/dummy.blade.php]
+- Generate dummy/seed users (bulk testing) with a count form and preview.
+- Trigger: admin.users.dummy.
+
+[admin/users/kyc_detail.blade.php]
+- A specific user's KYC submission detail (documents, status, decision
+  buttons) surfaced from user context.
+- Trigger: admin.users.kycStatus / shared KYC detail partial.
+
+[admin/users/logins.blade.php]
+- Login history for users: device/agent, IP, location, timestamp, security
+  warning flag; filterable.
+- Trigger: admin.users.logins.
+
+[admin/users/monetization_detail.blade.php]
+- Per-creator monetisation viewer: enabled flag, commission share, earnings,
+  payouts and top monetized videos.
+- Trigger: admin.users.monetizationDetail.
+
+[admin/users/notification_all.blade.php]
+- Send a platform-wide push/system notification selected from templates to all
+  users.
+- Trigger: admin.users.notifyAll.
+
+[admin/users/notification_single.blade.php]
+- Compose + send a targeted push/email to a specific user.
+- Trigger: admin.users.notifySingle.
+
+[admin/users/violators.blade.php]
+- Filtered view of users having moderation violations (strikes, blocks,
+  reports received).
+- Trigger: admin.users.violators.
+
+[admin/users/partials/modals.blade.php]
+- Shared modals for user pages (confirm block/delete, notification send box,
+  KYC decision confirm).
+- Trigger: included from user list/detail pages.
+
+[admin/kyc/create.blade.php]
+- KYC submission form: pick user, personal info (name/dob/address), govt ID
+  type + number, bank account details, and document files.
+- Trigger: ManageUsersController@kycCreate/kycStore (admin.kyc.create).
+
+[admin/kyc/details.blade.php]
+- KYC application detail: all submitted data + attached documents with zoom,
+  verification status badge, and Accept/Reject decision controls.
+- Trigger: admin.kyc.details (KycController / ManageUsers KYC flow).
+
+[admin/kyc/edit.blade.php]
+- Edit a KYC record (fix typos, re-upload documents) and re-trigger review.
+- Trigger: admin.kyc.edit/kycUpdate.
+
+[admin/kyc/index.blade.php]
+- KYC applications list with status filter tabs (pending/approved/rejected)
+  and per-request actions (view, edit, approve, reject).
+- Trigger: admin.kyc.index.
+
+[admin/kyc/setting.blade.php]
+- KYC configuration: enable/disable verification, choose required doc types,
+  fields shown on the form, approval settings.
+- Trigger: admin.kyc.setting (KYC check-availability hook).
+
+================================================================================
+PHASE 15 - MARKETPLACE, SUBSCRIBERS & SUPPORT
+================================================================================
+
+[admin/marketplace/index.blade.php]
+- Marketplace administration landing: services, portfolio, gallery, contact,
+  transaction and rating stats with shortcuts.
+- Trigger: admin.marketplace.index (MarketPlaceController admin landing).
+
+[admin/marketplace/create.blade.php]
+- Create a marketplace item (service/portfolio/gallery) from the panel: title,
+  images, price, category, owner, status.
+- Trigger: admin.marketplace.create/store.
+
+[admin/marketplace/edit.blade.php]
+- Edit marketplace entries (pricing, images, description, availability).
+- Trigger: admin.marketplace.edit/update.
+
+[admin/marketplace/show.blade.php]
+- Public-style preview of a marketplace item with media, price, seller info
+  and moderation buttons.
+- Trigger: admin.marketplace.show.
+
+[admin/marketplace/ratings.blade.php]
+- Ratings/reviews list across marketplace items with reviewer, score, review
+  text, moderation actions (hide/delete).
+- Trigger: admin.marketplace.ratings.
+
+[admin/marketplace/ratings_create.blade.php] / [ratings_edit.blade.php]
+- Forms to create/edit a rating record from admin side if needed.
+- Trigger: admin.marketplace.ratings.create / update.
+
+[admin/marketplace/contact/index.blade.php]
+- Contact-enquiry inbox: messages from sellers/leads with status; mark
+  resolved/spam.
+- Trigger: admin.marketplace.contact.index.
+
+[admin/marketplace/contact/create|edit|show.blade.php]
+- Admin create/edit/view of a contact conversation thread.
+- Trigger: relative contact routes.
+
+[admin/marketplace/gallery/*.blade.php]
+- Gallery item management: upload images, set showcase status, tie to seller;
+  create/edit/index/show variants.
+- Trigger: admin.marketplace.gallery.*.
+
+[admin/marketplace/portfolio/*.blade.php]
+- Portfolio pieces management (skills showcase): create/edit/list/detail.
+- Trigger: admin.marketplace.portfolio.*.
+
+[admin/marketplace/service/*.blade.php]
+- Service listings CRUD from admin: packages, pricing tiers, availability and
+  approval state.
+- Trigger: admin.marketplace.service.*.
+
+[admin/marketplace/transaction/index.blade.php]
+- Marketplace transactions ledger: item, buyer, seller, amount, gateway,
+  status; supports refund/chargeback flows.
+- Trigger: admin.marketplace.transaction.index.
+
+[admin/subscriber/index.blade.php]
+- Subscriber management: user-channel subscriptions list, counts, sync and
+  cleanup; channel totals.
+- Trigger: admin.subscriber.index.
+
+[admin/support/tickets.blade.php]
+- Support ticket queue: ticket id, user, subject, department, status badge,
+  priority; open, assign and reply actions.
+- Trigger: admin.support.tickets (TicketController).
+
+[admin/support/reply.blade.php]
+- Ticket reply workspace: full conversation thread, reply composer, attach
+  file, close/reopen ticket.
+- Trigger: admin.support.reply.
+
+================================================================================
+PHASE 16 - MODERATION & SECURITY
+================================================================================
+
+[admin/moderation/appeals.blade.php]
+- Appeal review board: challenged moderation decisions (removed videos,
+  blocked comments) with appeal text, appealer, decision actions.
+- Trigger: admin.moderation.appeals.
+
+[admin/moderation/strikes.blade.php]
+- Strike log: user, reason, points, issued date, expiry; auto escalation to
+  ban after thresholds.
+- Trigger: admin.moderation.strikes.
+
+[admin/moderation/reports/reels.blade.php]
+- Reported reels queue: target reel preview, reporter, reason, status; act
+  (hide/remove/ignore) or escalate to appeals.
+- Trigger: admin.moderation.reports.reels.
+
+[admin/moderation/reports/users.blade.php]
+- Reported users queue: complaint about accounts; block/suspend/ignore.
+- Trigger: admin.moderation.reports.users.
+
+[admin/moderation/reports/videos.blade.php]
+- Reported videos queue with reasons and moderation actions per report.
+- Trigger: admin.moderation.reports.videos.
+
+[admin/moderation/reports/partial_modal.blade.php]
+- Shared modal for report decision (confirm action, add note), reused across
+  the reports submodules.
+- Trigger: included by report pages.
+
+[admin/security/blacklist.blade.php]
+- Security blacklist: blocked emails/domains/IPs/users table with add/remove;
+  guards registration & logins.
+- Trigger: admin.security.blacklist.
+
+[admin/security/index.blade.php]
+- Security centre landing: rate-limit overview, failed-login attempts,
+  protected routes, outstanding threats.
+- Trigger: admin.security.index.
+
+[admin/security/strikes.blade.php]
+- Security-focused strike tracking (login abuse / spam signals), independent
+  from content moderation strikes.
+- Trigger: admin.security.strikes.
+
+================================================================================
+PHASE 17 - REPORTS & LOGS MODULE
+================================================================================
+
+[admin/reports/index.blade.php]
+- Reports landing hub: cards linking to every report type below with counts.
+- Trigger: admin.reports.index.
+
+[admin/reports/email_details.blade.php]
+- Email report: total sent, per-template stats, failure log, recipients.
+- Trigger: admin.reports.emailDetails.
+
+[admin/reports/logins.blade.php]
+- Login activity report: users, IPs, devices, success/fail, timestamps.
+- Trigger: admin.reports.logins.
+
+[admin/reports/notification_history.blade.php]
+- Sent-notification log: recipient, type (push/email/sms), content ref, time.
+- Trigger: admin.reports.notificationHistory.
+
+[admin/reports/plans.blade.php]
+- Plan purchase report: plan, buyers, revenue, renewal/expiry counts.
+- Trigger: admin.reports.plans.
+
+[admin/reports/playlists.blade.php]
+- Playlist report: playlists created, owners, video counts, visibility split.
+- Trigger: admin.reports.playlists.
+
+[admin/reports/transactions.blade.php]
+- Financial transactions report: deposits/withdrawals/commerce combined with
+  running balance and export to CSV.
+- Trigger: admin.reports.transactions.
+
+[admin/reports/videos.blade.php]
+- Video report: uploads, views, likes, completion, category aggregates.
+- Trigger: admin.reports.videos.
+
+[admin/reports/watch_history.blade.php]
+- Watch history report: per-user watch count/hours, top content, retention.
+- Trigger: admin.reports.watchHistory.
+
+================================================================================
+PHASE 18 - NOTIFICATIONS MODULE (email / push / sms templates)
+================================================================================
+
+[admin/notification/email_setting.blade.php]
+- Email sending configuration: driver (php mail / SMTP / SendGrid / Mailjet),
+  server host/port/encryption, credentials, and a "send test email" box.
+- Trigger: admin.notification.emailSetting (NotificationController, POST ->
+  emailSettingUpdate).
+
+[admin/notification/global_email_template.blade.php]
+- The global email template designer: master HTML layout (header/logo/footer/
+  color) applied to every transactional email.
+- Trigger: admin.notification.globalEmailTemplate.
+
+[admin/notification/global_push_template.blade.php]
+- Global push template: default title/body placeholders for push notifications
+  platform-wide.
+- Trigger: admin.notification.globalPushTemplate.
+
+[admin/notification/global_sms_template.blade.php]
+- Global SMS template settings (default body, sender ID).
+- Trigger: admin.notification.globalSmsTemplate.
+
+[admin/notification/global_shortcodes.blade.php]
+- Reference page listing every available shortcode (e.g. {{name}}, {{site}})
+  in a copyable table so templates can be built safely.
+- Trigger: admin.notification.globalShortcodes.
+
+[admin/notification/push_setting.blade.php]
+- Push provider configuration (Firebase FCM / web push keys) with credential
+  fields + connectivity test button.
+- Trigger: admin.notification.pushSetting.
+
+[admin/notification/sms_setting.blade.php]
+- SMS gateway configuration (provider credentials, from number, API key).
+- Trigger: admin.notification.smsSetting.
+
+[admin/notification/template/email.blade.php]
+- Per-event email template list (registration, payout, deposit, KYC, etc.)
+  with one click to open the editor.
+- Trigger: admin.notification.templates.email (index variant).
+
+[admin/notification/template/index.blade.php]
+- Template manager landing: shows templates grouped by notification type with
+  edit links and shortcode hint.
+- Trigger: admin.notification.templates.index.
+
+[admin/notification/template/nav.blade.php]
+- Tab/nav partial switching between email, push and SMS template sections.
+- Trigger: included on template pages.
+
+[admin/notification/template/push.blade.php]
+- Per-event push templates with big preview card (device-style phone frame).
+- Trigger: admin.notification.templates.push.
+
+[admin/notification/template/shortcodes.blade.php]
+- Shortcode picker helper panel overlaid on template editors (quick insertable
+  chips). Trigger: admin.notification.templates.shortcodes.
+
+[admin/notification/template/sms.blade.php]
+- Per-event SMS templates with character-count and preview.
+- Trigger: admin.notification.templates.sms.
+
+================================================================================
+PHASE 19 - FRONTEND CMS (all pages, sections & SEO builder)
+================================================================================
+
+[admin/frontend/index.blade.php]
+- Frontend content home: sections list showing each front-end section
+  (hero, features, footer, tos, etc.) with edit/lookup actions.
+- Trigger: admin.frontend.index (FrontendController@index).
+
+[admin/frontend/element.blade.php]
+- Edit a single section's content fields (heading, text, images, buttons,
+  social links) with save; each section type renders its form schema.
+- Trigger: admin.frontend.section/element (FrontendController@frontendSection).
+
+[admin/frontend/section.blade.php]
+- List/detail of one CMS section variant with manage-content entry.
+- Trigger: admin.frontend.section view.
+
+[admin/frontend/templates.blade.php]
+- CMS page/email template picker: manage which templates exist and their keys.
+- Trigger: admin.frontend.templates.
+
+[admin/frontend/seo.blade.php]
+- Per-section SEO settings: meta title, description, keywords, social share
+  image, robots rules for front-end pages.
+- Trigger: admin.frontend.seo (FrontendController@frontendSEO).
+
+[admin/frontend/frontend_seo.blade.php]
+- Dedicated SEO matrix view of every publishable page with its meta fields.
+- Trigger: admin.frontend.frontendSeo route/view.
+
+[admin/frontend/builder/index.blade.php]
+- Front-end page builder main view: live editor with section palette, drag to
+  arrange, inline text editing -> persist JSON layout.
+- Trigger: admin.frontend.builder.index.
+
+[admin/frontend/builder/pages.blade.php]
+- Builder page CRUD: which custom pages exist, publish state, builder link.
+- Trigger: admin.frontend.builder.pages.
+
+[admin/frontend/builder/seo.blade.php]
+- SEO tab inside the builder: per-page meta overrides + sitemap inclusion.
+- Trigger: admin.frontend.builder.seo.
+
+================================================================================
+PHASE 20 - LANGUAGE, EXTENSIONS, ONBOARDING & EXPORTS
+================================================================================
+
+[admin/language/edit_lang.blade.php]
+- Translation editor: select key (from lang file) -> edit value per language;
+  search/filter for missing translations.
+- Trigger: admin.lang.edit (LanguageController).
+
+[admin/language/lang.blade.php]
+- Language list/management: installed languages, default flag, statistics of
+  translated keys, add/remove.
+- Trigger: admin.lang.index.
+
+[admin/extension/index.blade.php]
+- Extensions/add-ons manager: list third-party modules, enable/disable
+  toggle, license key input, version/update status.
+- Trigger: admin.extension.index.
+
+[admin/onboarding-slides/actions.blade.php]
+- Ordering/visibility bulk actions panel for onboarding carousel slides.
+- Trigger: admin.onboarding.actions.
+
+[admin/onboarding-slides/create.blade.php]
+- Create an onboarding slide: title, description, image, order, status.
+- Trigger: admin.onboarding.create/store.
+
+[admin/onboarding-slides/edit.blade.php]
+- Edit an onboarding slide then it updates the app's intro carousel.
+- Trigger: admin.onboarding.edit/update.
+
+[admin/onboarding-slides/index.blade.php]
+- Onboarding slides list with drag-order, status toggles, edit/delete.
+- Trigger: admin.onboarding.index.
+
+[admin/onboarding-slides/show.blade.php]
+- Preview of a slide as the app would render it.
+- Trigger: admin.onboarding.show.
+
+[admin/exports/table.blade.php]
+- Generic export tool: pick an entity (users/videos/transactions/reports),
+  date range, and format (CSV/Excel) then stream the download.
+- Trigger: admin.export.table/export.
+
+================================================================================
+PHASE 21 - SETTINGS MODULE (all configuration pages)
+================================================================================
+
+[admin/settings/index.blade.php]
+- Settings landing wall of settings categories/groups with quick editor links.
+- Trigger: admin.settings.index (SettingsController).
+
+[admin/setting/general.blade.php]
+- Core site settings: site name, tagline, logo/favicon, timezone, currency,
+  default limits - the primary GeneralConfiguration update form.
+- Trigger: admin.setting.general (SettingsController@generalSettingStore).
+
+[admin/setting/configuration.blade.php]
+- Platform configuration: registration on/off, email verification, approval
+  for uploads, default permissions toggles.
+- Trigger: admin.setting.configuration.
+
+[admin/setting/ad.blade.php]
+- Ads settings: enable ads module, provider placements, ad unit codes.
+- Trigger: admin.setting.ad.
+
+[admin/setting/charge.blade.php]
+- Fee/charge settings: gateway fees, deposit/withdrawal charge percentages
+  and rounding rules.
+- Trigger: admin.setting.charge.
+
+[admin/setting/cookie.blade.php]
+- Cookie-consent banner configuration (copy, position, law toggles, accept
+  text) applied to front-end.
+- Trigger: admin.setting.cookie.
+
+[admin/setting/custom_css.blade.php]
+- Custom CSS/JS injection block appended site-wide for theme personalisation.
+- Trigger: admin.setting.customCss.
+
+[admin/setting/holiday.blade.php]
+- Holiday-mode settings: scheduled downtime window shown to visitors.
+- Trigger: admin.setting.holiday.
+
+[admin/setting/in_app_purchase/google.blade.php]
+- In-App Purchase billing forms (Google Play Billing config/credentials).
+- Trigger: admin.setting.iap.google.
+
+[admin/setting/keyword_blacklist.blade.php]
+- Keyword blacklist manager: banned words list (textarea/bulk import) used by
+  the moderation filter on uploads/comments.
+- Trigger: admin.setting.keywordBlacklist.
+
+[admin/setting/logo_icon.blade.php]
+- Logo & favicon uploader with previews and format constraints.
+- Trigger: admin.setting.logoIcon.
+
+[admin/setting/maintenance.blade.php]
+- Maintenance mode: toggle site on/off, allowed IPs/roles, message shown.
+- Trigger: admin.setting.maintenance.
+
+[admin/setting/robots.blade.php]
+- robots.txt editor: content generation with disallow rules.
+- Trigger: admin.setting.robots.
+
+[admin/setting/sitemap.blade.php]
+- Sitemap generator settings: which sections included, update frequency.
+- Trigger: admin.setting.sitemap.
+
+[admin/setting/social_credential.blade.php]
+- Social login credentials (Google/Facebook/X OAuth keys) for front-end.
+- Trigger: admin.setting.socialCredential.
+
+[admin/setting/storage.blade.php]
+- Storage config UI: select local/Bunny/S3/CDN, links to the Storage module.
+- Trigger: admin.setting.storage.
+
+[admin/setting/system.blade.php]
+- System-level defaults: language, version, timezone, localization settings.
+- Trigger: admin.setting.system.
+
+================================================================================
+PHASE 22 - STORAGE MODULE
+================================================================================
+
+[admin/storage/index.blade.php]
+- Storage management landing: current driver, usage (space used), driver
+  switch UI and per-driver config entry links.
+- Trigger: admin.storage.index.
+
+[admin/storage/digital_ocean/form.blade.php]
+- DigitalOcean Spaces credential form (key/secret/region/bucket/CDN) saved to
+  storage config.
+- Trigger: admin.storage.digitalOcean the DO space settings partial.
+
+[admin/storage/ftp/form.blade.php]
+- FTP/SFTP storage credential form saved for file hosting.
+- Trigger: admin.storage.ftp.
+
+[admin/storage/wasabi/form.blade.php]
+- Wasabi (S3-compatible) credential form.
+- Trigger: admin.storage.wasabi.
+
+================================================================================
+PHASE 23 - SYSTEM & AUTOMATION (cron + system tools)
+================================================================================
+
+[admin/cron/index.blade.php]
+- Cron job overview: shows whether the scheduler is running (last run),
+  lists recommended crontab entries with copy buttons.
+- Trigger: admin.cron.index.
+
+[admin/cron/logs.blade.php]
+- Scheduled task execution logs: command run, outcome, duration, timestamp.
+- Trigger: admin.cron.logs.
+
+[admin/cron/schedule.blade.php]
+- Schedule configurator: enable/disable / change frequencies of scheduled
+  jobs presented as a form mapping to cron definitions.
+- Trigger: admin.cron.schedule.
+
+[admin/system/info.blade.php]
+- System information: PHP version/extensions, Laravel version, server
+  software, DB info, environment, framework build.
+- Trigger: admin.system.info (SystemController@info).
+
+[admin/system/optimize.blade.php]
+- Optimisation toolkit: buttons to run config/route/view cache, clear caches,
+  regenerate assets with result output.
+- Trigger: admin.system.optimize.
+
+[admin/system/server.blade.php]
+- Server/environment detail: load, memory, disk, uptime, error log tail area.
+- Trigger: admin.system.server.
+
+[admin/system/update.blade.php]
+- System update page: current version vs latest, install-update button and
+  migration/seed instructions.
+- Trigger: admin.system.update (SystemController@update flow).
+
+[admin/system/update_log.blade.php]
+- Changelog history of applied updates/patches.
+- Trigger: admin.system.updateLog.
+================================================================================
+END OF DOCUMENT
+================================================================================
